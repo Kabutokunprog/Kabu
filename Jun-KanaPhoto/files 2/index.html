@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Photos for JK</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#111111" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Photos for JK" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #111;
+      --surface: #1c1c1c;
+      --accent: #fff;
+      --text: #f0f0f0;
+      --text-muted: #777;
+      --danger: #e05555;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; min-height: -webkit-fill-available;
+      overflow: hidden; position: fixed; width: 100%; height: 100%;
+    }
+    .screen {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 32px 24px;
+      opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    }
+    .screen.active { opacity: 1; pointer-events: all; }
+
+    /* LOGIN */
+    #screen-login { background: #111; }
+    .login-title { font-size: 1.6rem; font-weight: 300; letter-spacing: 0.15em; margin-bottom: 6px; text-align: center; }
+    .login-subtitle { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 56px; letter-spacing: 0.05em; }
+    .google-btn {
+      display: flex; align-items: center; gap: 10px;
+      background: #fff; color: #111; border: none; border-radius: 4px;
+      padding: 14px 28px; font-size: 0.9rem; font-family: 'DM Sans', sans-serif;
+      font-weight: 500; cursor: pointer; transition: opacity 0.15s;
+    }
+    .google-btn:active { opacity: 0.8; }
+    .google-btn svg { width: 18px; height: 18px; }
+
+    /* PIN */
+    #screen-pin { background: #111; }
+    .pin-title { font-size: 1rem; font-weight: 400; letter-spacing: 0.1em; margin-bottom: 4px; }
+    .pin-subtitle { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 40px; }
+    .pin-dots { display: flex; gap: 14px; margin-bottom: 40px; }
+    .pin-dot { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid #555; transition: background 0.15s, border-color 0.15s; }
+    .pin-dot.filled { background: #fff; border-color: #fff; }
+    .pin-pad { display: grid; grid-template-columns: repeat(3, 68px); gap: 10px; }
+    .pin-key {
+      width: 68px; height: 68px; border-radius: 50%;
+      border: 1px solid #333; background: transparent; color: var(--text);
+      font-size: 1.4rem; font-family: 'DM Sans', sans-serif; font-weight: 300;
+      cursor: pointer; transition: background 0.1s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pin-key:active { background: #2a2a2a; }
+    .pin-key.empty { border-color: transparent; cursor: default; }
+    .pin-key.del { font-size: 1rem; }
+    .pin-error { color: var(--danger); font-size: 0.75rem; margin-top: 18px; min-height: 18px; }
+    .pin-setup-hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 14px; text-align: center; max-width: 240px; line-height: 1.6; }
+
+    /* MAIN */
+    #screen-main { padding: 0; justify-content: flex-start; background: var(--bg); }
+    .top-bar {
+      width: 100%; display: flex; align-items: center; justify-content: space-between;
+      padding: 52px 16px 12px; border-bottom: 1px solid #222;
+    }
+    .top-bar-title { font-size: 0.9rem; font-weight: 400; letter-spacing: 0.12em; }
+    .top-bar-right { display: flex; gap: 8px; }
+    .top-bar-btn {
+      background: transparent; border: 1px solid #333; border-radius: 3px;
+      padding: 6px 12px; color: var(--text-muted);
+      font-size: 0.75rem; font-family: 'DM Sans', sans-serif; cursor: pointer;
+    }
+    .top-bar-btn:active { background: #222; }
+    .top-bar-btn.danger { border-color: #442222; color: var(--danger); }
+
+    .photo-grid {
+      flex: 1; width: 100%; overflow-y: auto;
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 2px; align-content: start; padding-bottom: 90px;
+    }
+    .photo-item { position: relative; aspect-ratio: 1; }
+    .photo-thumb { width: 100%; height: 100%; object-fit: cover; display: block; cursor: pointer; }
+    .photo-check {
+      position: absolute; top: 6px; right: 6px;
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.6);
+      background: transparent;
+      display: none; align-items: center; justify-content: center;
+      cursor: pointer; font-size: 0.7rem; color: #fff;
+    }
+    .photo-item.selected .photo-check { display: flex; background: var(--danger); border-color: var(--danger); }
+    .photo-item.selected .photo-thumb { opacity: 0.55; }
+    .select-mode .photo-check { display: flex; }
+
+    .empty-state {
+      grid-column: 1 / -1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 80px 20px; color: var(--text-muted); gap: 10px;
+    }
+    .empty-state p { font-size: 0.82rem; text-align: center; line-height: 1.7; }
+
+    .fab {
+      position: fixed; bottom: 28px; right: 20px;
+      width: 56px; height: 56px; border-radius: 50%;
+      background: #fff; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5); transition: transform 0.1s;
+    }
+    .fab:active { transform: scale(0.93); }
+    .fab svg { color: #111; }
+
+    .delete-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: #1c1c1c; border-top: 1px solid #2a2a2a;
+      padding: 12px 20px 32px;
+      display: none; align-items: center; justify-content: space-between;
+    }
+    .delete-bar.show { display: flex; }
+    .delete-count { font-size: 0.82rem; color: var(--text-muted); }
+    .delete-confirm-btn {
+      background: var(--danger); border: none; border-radius: 4px;
+      padding: 10px 20px; color: #fff; font-size: 0.85rem;
+      font-family: 'DM Sans', sans-serif; cursor: pointer;
+    }
+    .delete-cancel-btn {
+      background: transparent; border: 1px solid #333; border-radius: 4px;
+      padding: 10px 16px; color: var(--text-muted); font-size: 0.85rem;
+      font-family: 'DM Sans', sans-serif; cursor: pointer;
+    }
+
+    .loading-bar { position: fixed; top: 0; left: 0; height: 2px; background: #fff; width: 0%; transition: width 0.3s; z-index: 100; }
+
+    /* CAMERA */
+    #screen-camera { padding: 0; background: #000; justify-content: flex-end; }
+    #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .camera-ui { position: relative; z-index: 10; width: 100%; padding: 0 24px 48px; display: flex; align-items: center; justify-content: space-between; }
+    .cam-btn { width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,0.15); border: none; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); }
+    .shutter { width: 70px; height: 70px; border-radius: 50%; background: white; border: 4px solid rgba(255,255,255,0.4); cursor: pointer; transition: transform 0.1s; box-shadow: 0 0 0 3px rgba(255,255,255,0.2); }
+    .shutter:active { transform: scale(0.9); }
+    .uploading-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.65); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 20; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+    .uploading-overlay.show { opacity: 1; pointer-events: all; }
+    .upload-spinner { width: 36px; height: 36px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .upload-text { color: #fff; font-size: 0.85rem; letter-spacing: 0.05em; }
+
+    /* VIEWER */
+    #screen-viewer { background: #000; padding: 0; overflow: hidden; }
+    #viewer-container { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    #viewer-img { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center center; user-select: none; -webkit-user-select: none; touch-action: none; }
+    .viewer-close { position: absolute; top: 52px; right: 16px; background: rgba(0,0,0,0.4); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); z-index: 10; }
+    .viewer-counter { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.5); font-size: 0.75rem; letter-spacing: 0.1em; z-index: 10; }
+  </style>
+</head>
+<body>
+
+<div class="loading-bar" id="loading-bar"></div>
+
+<!-- LOGIN -->
+<div class="screen active" id="screen-login">
+  <div class="login-title">PHOTOS FOR JK</div>
+  <div class="login-subtitle">private album</div>
+  <button class="google-btn" id="btn-google-login">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+    </svg>
+    Sign in with Google
+  </button>
+</div>
+
+<!-- PIN -->
+<div class="screen" id="screen-pin">
+  <div class="pin-title" id="pin-title">ENTER PIN</div>
+  <div class="pin-subtitle" id="pin-subtitle">4桁のPINを入力してください</div>
+  <div class="pin-dots">
+    <div class="pin-dot" id="d0"></div>
+    <div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div>
+    <div class="pin-dot" id="d3"></div>
+  </div>
+  <div class="pin-pad">
+    <button class="pin-key" onclick="pinKey('1')">1</button>
+    <button class="pin-key" onclick="pinKey('2')">2</button>
+    <button class="pin-key" onclick="pinKey('3')">3</button>
+    <button class="pin-key" onclick="pinKey('4')">4</button>
+    <button class="pin-key" onclick="pinKey('5')">5</button>
+    <button class="pin-key" onclick="pinKey('6')">6</button>
+    <button class="pin-key" onclick="pinKey('7')">7</button>
+    <button class="pin-key" onclick="pinKey('8')">8</button>
+    <button class="pin-key" onclick="pinKey('9')">9</button>
+    <button class="pin-key empty"></button>
+    <button class="pin-key" onclick="pinKey('0')">0</button>
+    <button class="pin-key del" onclick="pinDel()">⌫</button>
+  </div>
+  <div class="pin-error" id="pin-error"></div>
+  <div class="pin-setup-hint" id="pin-setup-hint"></div>
+</div>
+
+<!-- MAIN -->
+<div class="screen" id="screen-main">
+  <div class="top-bar">
+    <div class="top-bar-title">PHOTOS FOR JK</div>
+    <div class="top-bar-right">
+      <button class="top-bar-btn danger" id="btn-select-mode">選択</button>
+      <button class="top-bar-btn" id="btn-logout">ログアウト</button>
+    </div>
+  </div>
+  <div class="photo-grid" id="photo-grid"></div>
+  <button class="fab" id="btn-camera">
+    <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+    </svg>
+  </button>
+  <div class="delete-bar" id="delete-bar">
+    <span class="delete-count" id="delete-count">0枚選択中</span>
+    <div style="display:flex;gap:8px;">
+      <button class="delete-cancel-btn" id="btn-delete-cancel">キャンセル</button>
+      <button class="delete-confirm-btn" id="btn-delete-confirm">削除</button>
+    </div>
+  </div>
+</div>
+
+<!-- CAMERA -->
+<div class="screen" id="screen-camera">
+  <video id="video" autoplay playsinline muted></video>
+  <div class="uploading-overlay" id="uploading-overlay">
+    <div class="upload-spinner"></div>
+    <div class="upload-text">保存中...</div>
+  </div>
+  <div class="camera-ui">
+    <button class="cam-btn" id="btn-cam-back">
+      <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+      </svg>
+    </button>
+    <button class="shutter" id="btn-shutter"></button>
+    <button class="cam-btn" id="btn-flip">
+      <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- VIEWER -->
+<div class="screen" id="screen-viewer">
+  <div id="viewer-container">
+    <img id="viewer-img" src="" alt="photo" />
+  </div>
+  <button class="viewer-close" id="btn-viewer-close">✕</button>
+  <div class="viewer-counter" id="viewer-counter"></div>
+</div>
+
+<script>
+const CLIENT_ID = '381486316352-vamio1c8q77hruh9i4c0s2artl1c8bji.apps.googleusercontent.com';
+const SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly';
+const FOLDER_ID = '1wph83Yp41UGeLKLy9QIrrvnnF16M_alK';
+const PIN_KEY = 'jk_pin';
+const TOKEN_KEY = 'jk_token';
+const TOKEN_EXP_KEY = 'jk_token_exp';
+
+let pinBuffer = '';
+let pinMode = 'enter';
+let pinSetupFirst = '';
+let facingMode = 'environment';
+let stream = null;
+let tokenClient = null;
+let accessToken = null;
+let photos = [];
+let selectMode = false;
+let selectedIds = new Set();
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+}
+
+// トークン保存・読み込み（約55分間有効）
+function saveToken(token) {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_EXP_KEY, (Date.now() + 55 * 60 * 1000).toString());
+}
+function loadToken() {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const exp = parseInt(localStorage.getItem(TOKEN_EXP_KEY) || '0');
+  return (token && Date.now() < exp) ? token : null;
+}
+function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_EXP_KEY);
+}
+
+function initGoogle() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: (response) => {
+      if (response.error) return;
+      accessToken = response.access_token;
+      saveToken(accessToken);
+      afterLogin();
+    }
+  });
+  // 保存済みトークンがあればGoogleログインをスキップ
+  const saved = loadToken();
+  if (saved) { accessToken = saved; afterLogin(); }
+}
+
+document.getElementById('btn-google-login').addEventListener('click', () => {
+  tokenClient.requestAccessToken();
+});
+
+function afterLogin() {
+  const storedPin = localStorage.getItem(PIN_KEY);
+  if (!storedPin) {
+    pinMode = 'setup';
+    document.getElementById('pin-title').textContent = 'SET PIN';
+    document.getElementById('pin-subtitle').textContent = '新しい4桁のPINを設定してください';
+    document.getElementById('pin-setup-hint').textContent = '※ このPINはこのデバイスに保存されます';
+  } else {
+    pinMode = 'enter';
+    document.getElementById('pin-title').textContent = 'ENTER PIN';
+    document.getElementById('pin-subtitle').textContent = '4桁のPINを入力してください';
+    document.getElementById('pin-setup-hint').textContent = '';
+  }
+  pinBuffer = '';
+  updatePinDots();
+  showScreen('pin');
+}
+
+function pinKey(val) {
+  if (pinBuffer.length >= 4) return;
+  pinBuffer += val;
+  updatePinDots();
+  if (pinBuffer.length === 4) setTimeout(processPin, 150);
+}
+function pinDel() {
+  pinBuffer = pinBuffer.slice(0, -1);
+  updatePinDots();
+  document.getElementById('pin-error').textContent = '';
+}
+function updatePinDots() {
+  for (let i = 0; i < 4; i++)
+    document.getElementById('d' + i).classList.toggle('filled', i < pinBuffer.length);
+}
+function processPin() {
+  if (pinMode === 'setup') {
+    pinSetupFirst = pinBuffer; pinBuffer = ''; updatePinDots();
+    pinMode = 'confirm';
+    document.getElementById('pin-title').textContent = 'CONFIRM PIN';
+    document.getElementById('pin-subtitle').textContent = 'もう一度入力してください';
+    document.getElementById('pin-setup-hint').textContent = '';
+  } else if (pinMode === 'confirm') {
+    if (pinBuffer === pinSetupFirst) {
+      localStorage.setItem(PIN_KEY, pinBuffer);
+      enterApp();
+    } else {
+      document.getElementById('pin-error').textContent = '一致しません。最初からやり直してください';
+      pinBuffer = ''; pinSetupFirst = ''; pinMode = 'setup'; updatePinDots();
+      setTimeout(() => {
+        document.getElementById('pin-title').textContent = 'SET PIN';
+        document.getElementById('pin-subtitle').textContent = '新しい4桁のPINを設定してください';
+        document.getElementById('pin-error').textContent = '';
+      }, 1500);
+    }
+  } else {
+    if (pinBuffer === localStorage.getItem(PIN_KEY)) { enterApp(); }
+    else {
+      document.getElementById('pin-error').textContent = 'PINが正しくありません';
+      pinBuffer = ''; updatePinDots();
+    }
+  }
+}
+
+function enterApp() { showScreen('main'); loadPhotos(); }
+
+async function driveRequest(url, options = {}) {
+  const res = await fetch(url, {
+    ...options,
+    headers: { 'Authorization': 'Bearer ' + accessToken, ...(options.headers || {}) }
+  });
+  if (res.status === 401) { clearToken(); accessToken = null; showScreen('login'); return {}; }
+  if (res.status === 204) return {};
+  return res.json();
+}
+
+async function loadPhotos() {
+  setLoading(30);
+  // Drive内のJPG/PNG/HEIC/GIF全て取得（直接入れたファイルも表示）
+  const res = await driveRequest(
+    `https://www.googleapis.com/drive/v3/files?q='${FOLDER_ID}'+in+parents+and+trashed=false+and+(mimeType='image/jpeg'+or+mimeType='image/png'+or+mimeType='image/heic'+or+mimeType='image/gif')&fields=files(id,name,thumbnailLink,mimeType)&orderBy=createdTime+desc&pageSize=200`
+  );
+  setLoading(100);
+  setTimeout(() => setLoading(0), 300);
+  photos = res.files || [];
+  renderPhotos();
+}
+
+function renderPhotos() {
+  const grid = document.getElementById('photo-grid');
+  grid.className = 'photo-grid' + (selectMode ? ' select-mode' : '');
+  if (photos.length === 0) {
+    grid.innerHTML = `<div class="empty-state"><p>まだ写真がありません<br>カメラボタンで撮影しましょう</p></div>`;
+    return;
+  }
+  grid.innerHTML = photos.map((p, i) => `
+    <div class="photo-item${selectedIds.has(p.id) ? ' selected' : ''}" id="item-${p.id}">
+      <img class="photo-thumb" src="${p.thumbnailLink || ''}" onclick="onThumbClick(${i})" />
+      <div class="photo-check" onclick="toggleSelect('${p.id}')">✓</div>
+    </div>
+  `).join('');
+}
+
+function onThumbClick(i) {
+  if (selectMode) { toggleSelect(photos[i].id); return; }
+  openViewer(i);
+}
+
+// ===== VIEWER =====
+let viewerIndex = 0;
+let viewerScale = 1;
+let viewerX = 0;
+let viewerY = 0;
+let lastTouchDist = 0;
+let touchStartX = 0;
+let touchStartY = 0;
+let pinching = false;
+
+function openViewer(i) {
+  viewerIndex = i;
+  viewerScale = 1; viewerX = 0; viewerY = 0;
+  const img = document.getElementById('viewer-img');
+  img.style.transform = 'translate(0px,0px) scale(1)';
+  img.src = (photos[i].thumbnailLink || '').replace('=s220', '=s1600');
+  document.getElementById('viewer-counter').textContent = (i + 1) + ' / ' + photos.length;
+  showScreen('viewer');
+}
+
+function applyTransform() {
+  document.getElementById('viewer-img').style.transform =
+    `translate(${viewerX}px, ${viewerY}px) scale(${viewerScale})`;
+}
+
+// タッチイベント（ピンチズーム＋スワイプ）
+const viewerContainer = document.getElementById('viewer-container');
+
+viewerContainer.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) {
+    pinching = true;
+    lastTouchDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+  } else if (e.touches.length === 1) {
+    pinching = false;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }
+}, { passive: true });
+
+viewerContainer.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 2) {
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    const delta = dist / lastTouchDist;
+    viewerScale = Math.min(Math.max(viewerScale * delta, 1), 5);
+    lastTouchDist = dist;
+    applyTransform();
+  } else if (e.touches.length === 1 && !pinching && viewerScale > 1) {
+    viewerX += e.touches[0].clientX - touchStartX;
+    viewerY += e.touches[0].clientY - touchStartY;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    applyTransform();
+  }
+}, { passive: true });
+
+viewerContainer.addEventListener('touchend', (e) => {
+  if (e.touches.length === 0 && !pinching && viewerScale <= 1) {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 50) {
+      if (dx < 0 && viewerIndex < photos.length - 1) openViewer(viewerIndex + 1);
+      else if (dx > 0 && viewerIndex > 0) openViewer(viewerIndex - 1);
+    }
+  }
+  if (e.touches.length === 0) pinching = false;
+});
+
+// ダブルタップでリセット
+let lastTap = 0;
+viewerContainer.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  if (now - lastTap < 300) {
+    viewerScale = 1; viewerX = 0; viewerY = 0; applyTransform();
+  }
+  lastTap = now;
+});
+
+function toggleSelect(id) {
+  if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+  updateDeleteBar(); renderPhotos();
+}
+
+function updateDeleteBar() {
+  document.getElementById('delete-bar').classList.toggle('show', selectMode);
+  document.getElementById('delete-count').textContent = selectedIds.size + '枚選択中';
+}
+
+document.getElementById('btn-select-mode').addEventListener('click', () => {
+  selectMode = !selectMode; selectedIds.clear();
+  document.getElementById('btn-select-mode').textContent = selectMode ? '完了' : '選択';
+  updateDeleteBar(); renderPhotos();
+});
+
+document.getElementById('btn-delete-cancel').addEventListener('click', () => {
+  selectMode = false; selectedIds.clear();
+  document.getElementById('btn-select-mode').textContent = '選択';
+  updateDeleteBar(); renderPhotos();
+});
+
+document.getElementById('btn-delete-confirm').addEventListener('click', async () => {
+  if (selectedIds.size === 0) return;
+  if (!confirm(selectedIds.size + '枚の写真を削除しますか？')) return;
+  const ids = [...selectedIds];
+  for (let i = 0; i < ids.length; i++) {
+    setLoading(Math.round((i / ids.length) * 90));
+    await fetch(`https://www.googleapis.com/drive/v3/files/${ids[i]}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + accessToken }
+    });
+  }
+  selectMode = false; selectedIds.clear();
+  document.getElementById('btn-select-mode').textContent = '選択';
+  updateDeleteBar();
+  await loadPhotos();
+});
+
+async function uploadPhoto(blob) {
+  document.getElementById('uploading-overlay').classList.add('show');
+  const filename = `photo_${Date.now()}.jpg`;
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify({ name: filename, parents: [FOLDER_ID] })], { type: 'application/json' }));
+  form.append('file', blob);
+  await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + accessToken }, body: form
+  });
+  document.getElementById('uploading-overlay').classList.remove('show');
+  showScreen('main'); loadPhotos();
+}
+
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
+  });
+  document.getElementById('video').srcObject = stream;
+  showScreen('camera');
+}
+document.getElementById('btn-camera').addEventListener('click', startCamera);
+document.getElementById('btn-flip').addEventListener('click', () => { facingMode = facingMode === 'environment' ? 'user' : 'environment'; startCamera(); });
+document.getElementById('btn-cam-back').addEventListener('click', () => { if (stream) stream.getTracks().forEach(t => t.stop()); showScreen('main'); });
+document.getElementById('btn-shutter').addEventListener('click', () => {
+  const video = document.getElementById('video');
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob(blob => uploadPhoto(blob), 'image/jpeg', 0.92);
+});
+
+document.getElementById('btn-viewer-close').addEventListener('click', () => showScreen('main'));
+
+document.getElementById('btn-logout').addEventListener('click', () => {
+  if (accessToken) google.accounts.oauth2.revoke(accessToken, () => {});
+  clearToken(); accessToken = null; photos = []; showScreen('login');
+});
+
+function setLoading(pct) { document.getElementById('loading-bar').style.width = pct + '%'; }
+
+window.addEventListener('load', () => {
+  const script = document.createElement('script');
+  script.src = 'https://accounts.google.com/gsi/client';
+  script.onload = initGoogle;
+  document.head.appendChild(script);
+});
+</script>
+</body>
+</html>
