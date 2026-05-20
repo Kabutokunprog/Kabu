@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
   <style>
     :root {
       --bg: #111;
@@ -159,8 +160,8 @@
 
     /* VIEWER */
     #screen-viewer { background: #000; padding: 0; overflow: hidden; }
-    #viewer-container { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; overscroll-behavior: none; }
-    #viewer-img { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center center; user-select: none; -webkit-user-select: none; touch-action: none; pointer-events: none; }
+    #viewer-container { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
+    #viewer-img { position: absolute; top: 50%; left: 50%; transform-origin: center center; user-select: none; -webkit-user-select: none; pointer-events: none; max-width: 100%; max-height: 100%; }
     .viewer-close { position: absolute; top: 52px; right: 16px; background: rgba(0,0,0,0.4); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); z-index: 10; }
     .viewer-counter { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.5); font-size: 0.75rem; letter-spacing: 0.1em; z-index: 10; }
   </style>
@@ -435,87 +436,78 @@ function onThumbClick(i) {
 
 // ===== VIEWER =====
 let viewerIndex = 0;
-let viewerScale = 1;
-let viewerX = 0;
-let viewerY = 0;
-let lastTouchDist = 0;
-let touchStartX = 0;
-let touchStartY = 0;
-let pinching = false;
+let hammer = null;
+let curScale = 1, curX = 0, curY = 0;
+let startScale = 1, startX = 0, startY = 0;
 
 function openViewer(i) {
   viewerIndex = i;
-  viewerScale = 1; viewerX = 0; viewerY = 0;
   const img = document.getElementById('viewer-img');
-  img.style.transform = 'translate(0px,0px) scale(1)';
   img.src = (photos[i].thumbnailLink || '').replace('=s220', '=s1600');
+  img.onload = () => resetViewer();
   document.getElementById('viewer-counter').textContent = (i + 1) + ' / ' + photos.length;
   showScreen('viewer');
 }
 
-function applyTransform() {
-  document.getElementById('viewer-img').style.transform =
-    `translate(${viewerX}px, ${viewerY}px) scale(${viewerScale})`;
+function resetViewer() {
+  curScale = 1; curX = 0; curY = 0;
+  applyViewerTransform(true);
 }
 
-// タッチイベント（ピンチズーム＋スワイプ）
-const viewerContainer = document.getElementById('viewer-container');
+function applyViewerTransform(instant) {
+  const img = document.getElementById('viewer-img');
+  const tr = instant ? 'none' : 'transform 0.15s ease';
+  img.style.transition = tr;
+  img.style.transform = `translate(calc(-50% + ${curX}px), calc(-50% + ${curY}px)) scale(${curScale})`;
+}
 
-viewerContainer.addEventListener('touchstart', (e) => {
-  e.preventDefault();
-  if (e.touches.length === 2) {
-    pinching = true;
-    lastTouchDist = Math.hypot(
-      e.touches[0].clientX - e.touches[1].clientX,
-      e.touches[0].clientY - e.touches[1].clientY
-    );
-  } else if (e.touches.length === 1) {
-    pinching = false;
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-  }
-}, { passive: false });
+function initHammer() {
+  const el = document.getElementById('viewer-container');
+  if (hammer) hammer.destroy();
+  hammer = new Hammer.Manager(el, { recognizers: [
+    [Hammer.Pinch, { enable: true }],
+    [Hammer.Pan, { direction: Hammer.DIRECTION_ALL, threshold: 5 }],
+    [Hammer.Swipe, { direction: Hammer.DIRECTION_HORIZONTAL, velocity: 0.3 }],
+    [Hammer.Tap, { event: 'doubletap', taps: 2 }],
+  ]});
 
-viewerContainer.addEventListener('touchmove', (e) => {
-  e.preventDefault();
-  if (e.touches.length === 2) {
-    const dist = Math.hypot(
-      e.touches[0].clientX - e.touches[1].clientX,
-      e.touches[0].clientY - e.touches[1].clientY
-    );
-    const delta = dist / lastTouchDist;
-    viewerScale = Math.min(Math.max(viewerScale * delta, 0.5), 8);
-    lastTouchDist = dist;
-    applyTransform();
-  } else if (e.touches.length === 1 && !pinching && viewerScale > 1) {
-    viewerX += e.touches[0].clientX - touchStartX;
-    viewerY += e.touches[0].clientY - touchStartY;
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-    applyTransform();
-  }
-}, { passive: false });
+  // ピンチ開始時のスケール・位置を記録
+  hammer.on('pinchstart', () => { startScale = curScale; startX = curX; startY = curY; });
 
-viewerContainer.addEventListener('touchend', (e) => {
-  if (e.touches.length === 0 && !pinching && viewerScale <= 1.1) {
-    const dx = e.changedTouches[0].clientX - touchStartX;
-    if (Math.abs(dx) > 50) {
-      if (dx < 0 && viewerIndex < photos.length - 1) openViewer(viewerIndex + 1);
-      else if (dx > 0 && viewerIndex > 0) openViewer(viewerIndex - 1);
-    }
-  }
-  if (e.touches.length === 0) pinching = false;
-});
+  // ピンチ中：中心点を考慮して拡大
+  hammer.on('pinchmove', (e) => {
+    curScale = Math.min(Math.max(startScale * e.scale, 1), 8);
+    curX = startX + e.deltaX;
+    curY = startY + e.deltaY;
+    applyViewerTransform(true);
+  });
 
-// ダブルタップでリセット
-let lastTap = 0;
-viewerContainer.addEventListener('touchend', (e) => {
-  const now = Date.now();
-  if (now - lastTap < 300) {
-    viewerScale = 1; viewerX = 0; viewerY = 0; applyTransform();
-  }
-  lastTap = now;
-});
+  // パン（ドラッグ）
+  hammer.on('panstart', () => { startX = curX; startY = curY; });
+  hammer.on('panmove', (e) => {
+    if (curScale <= 1) return;
+    curX = startX + e.deltaX;
+    curY = startY + e.deltaY;
+    applyViewerTransform(true);
+  });
+
+  // スワイプ（等倍時のみ前後移動）
+  hammer.on('swipe', (e) => {
+    if (curScale > 1.1) return;
+    if (e.direction === Hammer.DIRECTION_LEFT && viewerIndex < photos.length - 1) openViewer(viewerIndex + 1);
+    if (e.direction === Hammer.DIRECTION_RIGHT && viewerIndex > 0) openViewer(viewerIndex - 1);
+  });
+
+  // ダブルタップでリセット
+  hammer.on('doubletap', () => { resetViewer(); });
+}
+
+// ビューワー画面が表示されたときHammerを初期化
+const _origShowScreen = showScreen;
+function showScreen(id) {
+  _origShowScreen(id);
+  if (id === 'viewer') setTimeout(initHammer, 50);
+}
 
 function toggleSelect(id) {
   if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
