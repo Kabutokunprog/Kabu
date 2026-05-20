@@ -482,7 +482,7 @@ viewerContainer.addEventListener('touchmove', (e) => {
       e.touches[0].clientY - e.touches[1].clientY
     );
     const delta = dist / lastTouchDist;
-    viewerScale = Math.min(Math.max(viewerScale * delta, 1), 5);
+    viewerScale = Math.min(Math.max(viewerScale * delta, 0.5), 8);
     lastTouchDist = dist;
     applyTransform();
   } else if (e.touches.length === 1 && !pinching && viewerScale > 1) {
@@ -495,7 +495,7 @@ viewerContainer.addEventListener('touchmove', (e) => {
 }, { passive: true });
 
 viewerContainer.addEventListener('touchend', (e) => {
-  if (e.touches.length === 0 && !pinching && viewerScale <= 1) {
+  if (e.touches.length === 0 && !pinching && viewerScale <= 1.1) {
     const dx = e.changedTouches[0].clientX - touchStartX;
     if (Math.abs(dx) > 50) {
       if (dx < 0 && viewerIndex < photos.length - 1) openViewer(viewerIndex + 1);
