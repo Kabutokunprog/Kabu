@@ -159,8 +159,8 @@
 
     /* VIEWER */
     #screen-viewer { background: #000; padding: 0; overflow: hidden; }
-    #viewer-container { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    #viewer-img { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center center; user-select: none; -webkit-user-select: none; touch-action: none; }
+    #viewer-container { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; overscroll-behavior: none; }
+    #viewer-img { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center center; user-select: none; -webkit-user-select: none; touch-action: none; pointer-events: none; }
     .viewer-close { position: absolute; top: 52px; right: 16px; background: rgba(0,0,0,0.4); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); z-index: 10; }
     .viewer-counter { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.5); font-size: 0.75rem; letter-spacing: 0.1em; z-index: 10; }
   </style>
@@ -462,6 +462,7 @@ function applyTransform() {
 const viewerContainer = document.getElementById('viewer-container');
 
 viewerContainer.addEventListener('touchstart', (e) => {
+  e.preventDefault();
   if (e.touches.length === 2) {
     pinching = true;
     lastTouchDist = Math.hypot(
@@ -473,9 +474,10 @@ viewerContainer.addEventListener('touchstart', (e) => {
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
   }
-}, { passive: true });
+}, { passive: false });
 
 viewerContainer.addEventListener('touchmove', (e) => {
+  e.preventDefault();
   if (e.touches.length === 2) {
     const dist = Math.hypot(
       e.touches[0].clientX - e.touches[1].clientX,
@@ -492,7 +494,7 @@ viewerContainer.addEventListener('touchmove', (e) => {
     touchStartY = e.touches[0].clientY;
     applyTransform();
   }
-}, { passive: true });
+}, { passive: false });
 
 viewerContainer.addEventListener('touchend', (e) => {
   if (e.touches.length === 0 && !pinching && viewerScale <= 1.1) {
