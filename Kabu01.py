@@ -5,7 +5,7 @@ import numpy as np
 
 app = Flask(__name__)
 
-# 固定資産リスト（たけさんのコア資産 ＋ 宇宙3大ファンド ＋ 6月上場予定の本命SPCX）
+# 固定資産リスト（宇宙3大ファンド ＋ 6月上場予定の本命SPCXを標準装備）
 FIXED_ASSETS = {
     "保有": {
         "VPU": "AI電力(主力)", "PAVE": "インフラ(主力)", "VOO": "S&P500", 
@@ -40,7 +40,7 @@ def fetch_data(additional_tickers):
         try:
             s = yf.Ticker(t)
             
-            # まだ上場していないSPCX（SpaceX）などのエラー回避救済処置
+            # SPCX（SpaceX）未上場時のエラー回避処理
             if t == "SPCX":
                 current, dev_ma50, dev_ma200, ret_3m, rsi, pos_52w, vol_ratio = 0.0, 0.0, 0.0, 0.0, 50, 0, 1.0
                 ret = {2023: 0.0, 2024: 0.0, 2025: 0.0}
@@ -59,7 +59,6 @@ def fetch_data(additional_tickers):
 
                 current = s.info.get("regularMarketPrice") or s.info.get("currentPrice") or hist_5y['Close'].iloc[-1]
                 
-                # 指標の計算
                 ma50 = hist_5y['Close'].rolling(window=50).mean().iloc[-1]
                 dev_ma50 = ((current - ma50) / ma50) * 100
                 ma200 = hist_5y['Close'].rolling(window=200).mean().iloc[-1]
@@ -85,35 +84,32 @@ def fetch_data(additional_tickers):
                 is_momentum = t in MOMENTUM_TICKERS
                 
                 if is_momentum:
-                    # ① 【モメンタム型】PERを廃止、52週高値圏の滞空過熱リスクを導入
+                    # ① PERを廃止し、52週高値圏の滞空リスクを採用
                     if rsi > 85: score -= 25
                     elif 45 <= rsi <= 65: score += 15
-                    
-                    if pos_52w > 95: score -= 15 # 高度飛行による上値の重さを検知（PER二重処罰の回避）
+                    if pos_52w > 95: score -= 15
 
                     # トレンド評価
                     if dev_ma200 > 0:
                         if -5 <= dev_ma50 <= 5: score += 25  # 黄金の押し目
-                        elif 5 < dev_ma50 <= 15: score += 10 # 健全な順航
+                        elif 5 < dev_ma50 <= 15: score += 10 # 健全な巡航速度
                     
-                    # 過熱足切り
+                    # 過熱・トレンド崩壊のペナルティ
                     if dev_ma50 > 15: score -= 20
                     if dev_ma50 < -10: score -= 20
                     if dev_ma200 < 0: score -= 25
                 else:
-                    # ② 【バリュー型】死んだアセット・バリュートラップの完全足切り
-                    # 3ヶ月リターンがマイナス、または長期線から大幅下落しているものは足切り
+                    # ② バリュー型の「死んだアセット（リターン5%未満）」足切り
                     if ret_3m < 0 or dev_ma200 < -3:
-                        score -= 30  # リターン5%を期待できないアセットを排除
+                        score -= 30  # トラップを排除
                     else:
                         if 40 <= rsi <= 55: score += 15
                         if -5 <= dev_ma50 <= 2: score += 10
                         if dev_ma200 < 0: score -= 15
 
-                # ③ 【共通】セリングクライマックス（大底）の自動加点ロジック
-                # 短期的に大きく売られ、かつプロの買い集め（出来高急増）が起きている場合
+                # ③ セリングクライマックス（大底）自動検知
                 if dev_ma50 < -3 and vol_ratio >= 1.5:
-                    score += 25  # 歴史的バーゲンセール確定（大加点）
+                    score += 25
 
             final_score = int(max(0, min(100, score)))
 
@@ -173,13 +169,16 @@ def index():
             .high-vol { background: #fffbeb; color: #b45309; font-weight: bold; border: 1px solid #fde68a; border-radius: 3px; padding: 1px 3px; }
             .badge-m { background: #eff6ff; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 9px; font-weight: bold;}
             .badge-v { background: #f5f5f5; color: #444; padding: 2px 4px; border-radius: 3px; font-size: 9px; }
-            .docs { background: #fff; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 11px; line-height: 1.6; color: #334155; margin-bottom: 20px;}
-            .docs h4 { margin-top: 0; font-size: 13px; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px; }
+            
+            /* 復活させたドキュメントエリアのスタイル */
+            .docs { background: #fff; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; line-height: 1.6; color: #334155; margin-bottom: 20px;}
+            .docs h4 { margin-top: 0; font-size: 14px; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px; }
+            .docs ul { padding-left: 20px; margin: 8px 0; }
             .copy-area { width: 100%; height: 120px; font-size: 10px; font-family: monospace; border: 1px solid #ccc; padding: 5px; white-space: pre; overflow: auto; }
         </style>
     </head>
     <body>
-        <h3>🧠 戦略司令室 V7.2：SpaceX直前シフト × 完全客観モデル</h3>
+        <h3>🧠 戦略司令室 V7.2：SpaceX直前シフト版</h3>
         
         <div class="control-panel">
             <form id="tickerForm" method="GET" action="/">
@@ -238,6 +237,26 @@ def index():
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+
+        <div class="docs">
+            <h4>📊 【復活】客観スコアリング定規（基本点50点からの加減点ルール）</h4>
+            <p><strong>【モメンタム型定規（順張り）】</strong>：トレンドの健全性と過熱滞空リスクを測定</p>
+            <ul>
+                <li><strong>加点：</strong>200日線の上にあることを前提とし、50日線付近の絶妙な押し目（乖離-5%〜+5%）なら <code>+25点</code>。健全な巡航速度（乖離+5%〜+15%）なら <code>+10点</code>。RSIが過熱していない健全レンジ（45〜65）なら <code>+15点</code>。</li>
+                <li><strong>減点：</strong>RSIが異常過熱（85超）なら <code>-25点</code>。52週高値圏に張り付き（52週位置95%超）なら <code>-15点</code>。短期急騰（50日乖離15%超）なら <code>-20点</code>。200日線を下回るトレンド崩壊なら <code>-25点</code>。</li>
+            </ul>
+            
+            <p><strong>【バリュー型定規（逆張り）】</strong>：死んだアセット（バリュートラップ）の排除と割安性の検知</p>
+            <ul>
+                <li><strong>足切り（最優先）：</strong>直近3ヶ月リターンがマイナス <code>(ret_3m < 0)</code>、または200日線から3%以上下方に沈んでいる <code>(dev_ma200 < -3%)</code> 場合は、リターン5%を期待できない「死んだレンジ株」とみなし <code>-30点</code>。</li>
+                <li><strong>正常時の加減点：</strong>RSIが底値圏（40〜55）なら <code>+15点</code>。50日線付近での下げ止まり（乖離-5%〜+2%）なら <code>+10点</code>。200日線割れなら <code>-15点</code>。</li>
+            </ul>
+
+            <p><strong>【共通：セリングクライマックス（大底）自動検知】</strong></p>
+            <ul>
+                <li>短期的に売り込まれている局面（50日乖離が-3%未満）で、直近5日の出来高が過去3ヶ月平均の1.5倍以上に急増 <code>(vol_ratio >= 1.5)</code> している場合、恐怖に負けた個人の投げ売りをプロが底値で買い集めたと判定し、一律 <code>+25点</code> を強制加点。</li>
+            </ul>
         </div>
 
         <div class="docs">
