@@ -5,25 +5,40 @@ import numpy as np
 
 app = Flask(__name__)
 
-# 固定資産リスト（たけさんのコア資産 ＋ 宇宙ファンド ＋ 6月上場SPCX ＋ NVIDIA ＋ 国内QQQ2種をデフォルト装備）
+# 固定資産リスト（資産の高い順の並びを厳守 ＋ ヘッジなし本命2種を常駐 ＋ ロッキード削除 ＋ 宇宙ファンド・SPCX）
 FIXED_ASSETS = {
     "保有": {
-        "VPU": "AI電力(主力)", "PAVE": "インフラ(主力)", "VOO": "S&P500", 
-        "SMH": "半導体", "NVDA": "NVIDIA(本命)", "NDAQ": "NASDAQ", 
-        "2569.T": "上場NASDAQ100ヘッジ有(ETF)", "0431123B.ST": "SBIインベスコQQQヘッジ有(投信)",
-        "9984.T": "SBG", "7201.T": "日産", "4901.T": "富士フイルム", "1489.T": "日経高配当50"
+        "VPU": "AI電力(主力)", 
+        "PAVE": "インフラ(主力)", 
+        "VOO": "S&P500", 
+        "SMH": "半導体", 
+        "NVDA": "NVIDIA(本命)",
+        "NDAQ": "NASDAQ", 
+        "9984.T": "SBG", 
+        "7201.T": "日産", 
+        "4901.T": "富士フイルム", 
+        "1489.T": "日経高配当50",
+        "1545.T": "ニッセイNASDAQ100(投信クラス)", # 確実なデータ取得のため東証ヘッジなしコードを利用
+        "2631.T": "eMAXIS Slim NASDAQ100"       # 確実なデータ取得のため東証ヘッジなしコードを利用
     },
     "監視": {
-        "QQQ": "NASDAQ100(本家ドル建)", "GLD": "金(有事の備え)", "XLE": "エネルギー(保険)", 
-        "EPI": "インド株(損切済)", "VWO": "新興国株", "VNM": "ベトナム", 
-        "CIBR": "セキュリティ", "XLV": "ヘルスケア",
-        "LMT": "ロッキード(宇宙巨頭)", "ARKX": "ARK宇宙探査投信", 
-        "UFO": "宇宙エコミETF", "ITA": "米国航空宇宙防衛", "SPCX": "SpaceX(6/12上場)"
+        "QQQ": "NASDAQ100(本家ドル建)", 
+        "GLD": "金(有事の備え)", 
+        "XLE": "エネルギー(保険)", 
+        "EPI": "インド株(損切済)", 
+        "VWO": "新興国株", 
+        "VNM": "ベトナム", 
+        "CIBR": "セキュリティ", 
+        "XLV": "ヘルスケア",
+        "ARKX": "ARK宇宙探査投信", 
+        "UFO": "宇宙エコミETF", 
+        "ITA": "米国航空宇宙防衛", 
+        "SPCX": "SpaceX(6/12上場)"
     }
 }
 
-# モメンタム（順張り）型アセットの定義（NVIDIA、本家QQQ、国内ヘッジ有QQQ、SpaceX等を集約）
-MOMENTUM_TICKERS = ["SMH", "NVDA", "QQQ", "2569.T", "0431123B.ST", "VOO", "NDAQ", "9984.T", "MSFT", "AAPL", "TSLA", "AMZN", "META", "GOOGL", "AVGO", "TSM", "ARKX", "UFO", "SPCX"]
+# モメンタム（順張り）型アセットの定義
+MOMENTUM_TICKERS = ["SMH", "NVDA", "QQQ", "1545.T", "2631.T", "VOO", "NDAQ", "9984.T", "MSFT", "AAPL", "TSLA", "AMZN", "META", "GOOGL", "AVGO", "TSM", "ARKX", "UFO", "SPCX"]
 
 def fetch_data(additional_tickers):
     res = []
@@ -49,43 +64,60 @@ def fetch_data(additional_tickers):
                 is_momentum = True
             else:
                 hist_5y = s.history(period="5y")
-                if len(hist_5y) < 200: continue
+                if len(hist_5y) < 10:
+                    hist_5y = s.history(period="max")
+                if len(hist_5y) == 0: continue
 
                 ret = {2025: np.nan, 2024: np.nan, 2023: np.nan}
-                yearly = hist_5y['Close'].resample('YE').last().pct_change() * 100
-                for y in ret.keys():
-                    target_date = f"{y}-12-31"
-                    matching_dates = yearly.index[yearly.index.strftime('%Y-%m-%d') == target_date]
-                    if not matching_dates.empty: ret[y] = yearly.loc[matching_dates[0]]
+                try:
+                    yearly = hist_5y['Close'].resample('YE').last().pct_change() * 100
+                    for y in ret.keys():
+                        target_date = f"{y}-12-31"
+                        matching_dates = yearly.index[yearly.index.strftime('%Y-%m-%d') == target_date]
+                        if not matching_dates.empty: ret[y] = yearly.loc[matching_dates[0]]
+                except:
+                    pass
 
                 current = s.info.get("regularMarketPrice") or s.info.get("currentPrice") or hist_5y['Close'].iloc[-1]
                 
-                ma50 = hist_5y['Close'].rolling(window=50).mean().iloc[-1]
-                dev_ma50 = ((current - ma50) / ma50) * 100
-                ma200 = hist_5y['Close'].rolling(window=200).mean().iloc[-1]
-                dev_ma200 = ((current - ma200) / ma200) * 100
-                three_months_ago = hist_5y['Close'].iloc[-63] if len(hist_5y) > 63 else hist_5y['Close'].iloc[0]
-                ret_3m = ((current - three_months_ago) / three_months_ago) * 100
+                # 移動平均と乖離の算出
+                w50 = min(50, len(hist_5y))
+                w200 = min(200, len(hist_5y))
+                ma50 = hist_5y['Close'].rolling(window=w50).mean().iloc[-1] if w50 > 0 else current
+                dev_ma50 = ((current - ma50) / ma50) * 100 if ma50 != 0 else 0
+                ma200 = hist_5y['Close'].rolling(window=w200).mean().iloc[-1] if w200 > 0 else current
+                dev_ma200 = ((current - ma200) / ma200) * 100 if ma200 != 0 else 0
+                
+                idx_3m = -min(63, len(hist_5y))
+                three_months_ago = hist_5y['Close'].iloc[idx_3m] if len(hist_5y) > 0 else current
+                ret_3m = ((current - three_months_ago) / three_months_ago) * 100 if three_months_ago != 0 else 0
 
+                # RSI
                 delta = hist_5y['Close'].diff()
-                gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-                loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-                rsi = 100 - (100 / (1 + (gain / loss).iloc[-1]))
+                gain = (delta.where(delta > 0, 0)).rolling(min(14, len(hist_5y))).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(min(14, len(hist_5y))).mean()
+                if len(loss) > 0 and loss.iloc[-1] != 0:
+                    rsi = 100 - (100 / (1 + (gain.iloc[-1] / loss.iloc[-1])))
+                else:
+                    rsi = 50
 
-                h52 = hist_5y['Close'].tail(252).max()
-                l52 = hist_5y['Close'].tail(252).min()
+                # 52週位置
+                w252 = min(252, len(hist_5y))
+                h52 = hist_5y['Close'].tail(w252).max()
+                l52 = hist_5y['Close'].tail(w252).min()
                 pos_52w = ((current - l52) / (h52 - l52)) * 100 if h52 != l52 else 0
 
+                # 出来高比
                 vol_5d = hist_5y['Volume'].tail(5).mean()
-                vol_60d = hist_5y['Volume'].tail(63).mean()
+                vol_60d = hist_5y['Volume'].tail(min(63, len(hist_5y))).mean()
                 vol_ratio = (vol_5d / vol_60d) if vol_60d > 0 else 1.0
 
-                # --- 🧠 V7.3 確定客観ロジック ---
+                # --- 🧠 V7.5 確定客観ロジック ---
                 score = 50
                 is_momentum = t in MOMENTUM_TICKERS
                 
                 if is_momentum:
-                    # ① PERを廃止し、52週高値圏の滞空リスクを採用
+                    # ① モメンタム型：52週高値圏の滞空過熱リスク判定（PER二重処罰回避）
                     if rsi > 85: score -= 25
                     elif 45 <= rsi <= 65: score += 15
                     if pos_52w > 95: score -= 15
@@ -93,22 +125,22 @@ def fetch_data(additional_tickers):
                     # トレンド評価
                     if dev_ma200 > 0:
                         if -5 <= dev_ma50 <= 5: score += 25  # 黄金の押し目
-                        elif 5 < dev_ma50 <= 15: score += 10 # 健全な順航速度
+                        elif 5 < dev_ma50 <= 15: score += 10 # 健全な巡航
                     
-                    # 過熱・トレンド崩壊のペナルティ
+                    # 過熱足切り
                     if dev_ma50 > 15: score -= 20
                     if dev_ma50 < -10: score -= 20
                     if dev_ma200 < 0: score -= 25
                 else:
-                    # ② バリュー型の「死んだアセット（リターン5%未満）」足切り
+                    # ② バリュー型：死んだアセット（リターン5%未満）の完全排除
                     if ret_3m < 0 or dev_ma200 < -3:
-                        score -= 30  # トラップを排除
+                        score -= 30  
                     else:
                         if 40 <= rsi <= 55: score += 15
                         if -5 <= dev_ma50 <= 2: score += 10
                         if dev_ma200 < 0: score -= 15
 
-                # ③ セリングクライマックス（大底）自動検知
+                # ③ 共通：セリングクライマックス（大底）自動検知
                 if dev_ma50 < -3 and vol_ratio >= 1.5:
                     score += 25
 
@@ -148,7 +180,7 @@ def index():
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>戦略司令室 V7.3</title>
+        <title>戦略司令室 V7.5</title>
         <style>
             body { font-family: -apple-system, sans-serif; margin: 0; padding: 10px; background: #f4f6f9; color: #333; }
             h3 { margin: 10px 0; font-size: 16px; color: #1e293b; }
@@ -179,14 +211,14 @@ def index():
         </style>
     </head>
     <body>
-        <h3>🧠 戦略司令室 V7.3：SpaceX直前シフト版</h3>
+        <h3>🧠 戦略司令室 V7.5：完全配置・情報集約モデル</h3>
         
         <div class="control-panel">
             <form id="tickerForm" method="GET" action="/">
                 <label>➕ 関心銘柄の追加: </label>
-                <input type="text" id="tickerInput" name="tickers" placeholder="例: NVDA, MSFT" value="{{ custom_tickers_str }}">
-                <button type="submit" onclick="localStorage.setItem('kabu_v73_tickers', document.getElementById('tickerInput').value.trim().toUpperCase())">追加・同期更新</button>
-                <button type="button" class="btn-clear" onclick="localStorage.removeItem('kabu_v73_tickers'); window.location.href='/';">クリア</button>
+                <input type="text" id="tickerInput" name="tickers" placeholder="例: MSFT, AMD" value="{{ custom_tickers_str }}">
+                <button type="submit" onclick="localStorage.setItem('kabu_v75_tickers', document.getElementById('tickerInput').value.trim().toUpperCase())">追加・同期更新</button>
+                <button type="button" class="btn-clear" onclick="localStorage.removeItem('kabu_v75_tickers'); window.location.href='/';">クリア</button>
             </form>
         </div>
 
@@ -243,12 +275,12 @@ def index():
         <div class="docs">
             <h4>📈 各表示項目の解説と計算式</h4>
             <ul>
-                <li><strong>魅力度（点数）：</strong>基本点50点からスタートし、各定規のルールに応じて自動計算される客観的な買いシグナル（70点以上で緑、35点以下で赤表示）。</li>
-                <li><strong>RSI（相対力指数）：</strong>過去14日間の「値上がり幅」と「値下がり幅」から、市場の心理的過熱度を0〜100%で表したもの。80超は買われすぎ（天井圏）、30未満は売られすぎ（底値圏）を示す。</li>
-                <li><strong>50日乖離 / 200日乖離：</strong>現在の株価が、過去50日間（中期トレンド）または200日間（長期トレンド）の移動平均線から何％離れているか。マイナスは割安、プラスは上昇トレンドまたは過熱。</li>
-                <li><strong>3ヶ月（騰落率）：</strong>直近3ヶ月（約63営業日）の株価リターン。バリュー型でこれがマイナスのものは「死んだレンジ株」として弾かれる。</li>
-                <li><strong>52週位置：</strong>過去1年間（52週間）の最高値を100%、最安値を0%とした時の現在の立ち位置。モメンタム株が95%超に長期間滞空している場合は過熱リスクを検知。</li>
-                <li><strong>出来高比：</strong>直近5日間の平均取引量が、過去3ヶ月平均の何倍に増えているか。暴落時の「出来高急増（1.5倍以上）」は、プロの買い集め（大底）のシグナルとなる。</li>
+                <li><strong>魅力度（点数）：</strong>基本点 50 点からスタートし、各定規のルールに応じて自動計算される客観的な買いシグナル（70点以上で緑、35点以下で赤表示）。</li>
+                <li><strong>RSI（相対力指数）：</strong>過去14日間の「値上がり幅」と「値下がり幅」から、市場の心理的過熱度を 0〜100% で表したもの。80超は買われすぎ（天井圏）、30未満は売られすぎ（底値圏）を示す。</li>
+                <li><strong>50日乖離 / 200日乖離：</strong>現在の株価が、過去 50 日間（中期トレンド）または 200 日間（長期トレンド）の移動平均線から何％離れているか。マイナスは割安、プラスは上昇トレンドまたは過熱。</li>
+                <li><strong>3ヶ月（騰落率）：</strong>直近 3 ヶ月（約63営業日）の株価リターン。バリュー型でこれがマイナスのものは「死んだレンジ株」として弾かれる。</li>
+                <li><strong>52週位置：</strong>過去1年間（52週間）の最高値を 100%、最安値を 0% とした時の現在の立ち位置。モメンタム株が 95% 超に長期間滞空している場合は過熱リスクを検知。</li>
+                <li><strong>出来高比：</strong>直近 5 日間の平均取引量が、過去 3 ヶ月平均の何倍に増えているか。暴落時の「出来高急増（1.5倍以上）」は、プロの買い集め（大底）のシグナルとなる。</li>
             </ul>
         </div>
 
@@ -279,7 +311,7 @@ def index():
 
         <script>
             document.addEventListener("DOMContentLoaded", function() {
-                const savedTickers = localStorage.getItem("kabu_v73_tickers");
+                const savedTickers = localStorage.getItem("kabu_v75_tickers");
                 const urlParams = new URLSearchParams(window.location.search);
                 const urlTickers = urlParams.get('tickers');
                 
