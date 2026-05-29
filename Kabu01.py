@@ -92,7 +92,7 @@ def fetch_data(additional_tickers):
                     # トレンド評価
                     if dev_ma200 > 0:
                         if -5 <= dev_ma50 <= 5: score += 25  # 黄金の押し目
-                        elif 5 < dev_ma50 <= 15: score += 10 # 健全な巡航速度
+                        elif 5 < dev_ma50 <= 15: score += 10 # 健全な順航速度
                     
                     # 過熱・トレンド崩壊のペナルティ
                     if dev_ma50 > 15: score -= 20
@@ -170,10 +170,11 @@ def index():
             .badge-m { background: #eff6ff; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 9px; font-weight: bold;}
             .badge-v { background: #f5f5f5; color: #444; padding: 2px 4px; border-radius: 3px; font-size: 9px; }
             
-            /* 復活させたドキュメントエリアのスタイル */
-            .docs { background: #fff; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; line-height: 1.6; color: #334155; margin-bottom: 20px;}
-            .docs h4 { margin-top: 0; font-size: 14px; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px; }
+            /* 復活：解説ドキュメントエリアのスタイル */
+            .docs { background: #fff; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; line-height: 1.6; color: #334155; margin-bottom: 15px;}
+            .docs h4 { margin-top: 0; font-size: 14px; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 10px; }
             .docs ul { padding-left: 20px; margin: 8px 0; }
+            .docs li { margin-bottom: 4px; }
             .copy-area { width: 100%; height: 120px; font-size: 10px; font-family: monospace; border: 1px solid #ccc; padding: 5px; white-space: pre; overflow: auto; }
         </style>
     </head>
@@ -240,7 +241,19 @@ def index():
         </div>
 
         <div class="docs">
-            <h4>📊 【復活】客観スコアリング定規（基本点50点からの加減点ルール）</h4>
+            <h4>📈 【完全復活】各表示項目の解説と計算式</h4>
+            <ul>
+                <li><strong>魅力度（点数）：</strong>基本点50点からスタートし、各定規のルールに応じて自動計算される客観的な買いシグナル（70点以上で緑、35点以下で赤表示）。</li>
+                <li><strong>RSI（相対力指数）：</strong>過去14日間の「値上がり幅」と「値下がり幅」から、市場の心理的過熱度を0〜100%で表したもの。80超は買われすぎ（天井圏）、30未満は売られすぎ（底値圏）を示す。</li>
+                <li><strong>50日乖離 / 200日乖離：</strong>現在の株価が、過去50日間（中期トレンド）または200日間（長期トレンド）の移動平均線から何％離れているか。マイナスは割安、プラスは上昇トレンドまたは過熱。</li>
+                <li><strong>3ヶ月（騰落率）：</strong>直近3ヶ月（約63営業日）の株価リターン。バリュー型でこれがマイナスのものは「死んだレンジ株」として弾かれる。</li>
+                <li><strong>52週位置：</strong>過去1年間（52週間）の最高値を100%、最安値を0%とした時の現在の立ち位置。モメンタム株が95%超に長期間滞空している場合は過熱リスクを検知。</li>
+                <li><strong>出来高比：</strong>直近5日間の平均取引量が、過去3ヶ月平均の何倍に増えているか。暴落時の「出来高急増（1.5倍以上）」は、プロの買い集め（大底）のシグナルとなる。</li>
+            </ul>
+        </div>
+
+        <div class="docs">
+            <h4>📊 客観スコアリング定規（加減点ルール詳細）</h4>
             <p><strong>【モメンタム型定規（順張り）】</strong>：トレンドの健全性と過熱滞空リスクを測定</p>
             <ul>
                 <li><strong>加点：</strong>200日線の上にあることを前提とし、50日線付近の絶妙な押し目（乖離-5%〜+5%）なら <code>+25点</code>。健全な巡航速度（乖離+5%〜+15%）なら <code>+10点</code>。RSIが過熱していない健全レンジ（45〜65）なら <code>+15点</code>。</li>
