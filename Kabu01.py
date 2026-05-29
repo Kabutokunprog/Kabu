@@ -5,6 +5,7 @@ import numpy as np
 
 app = Flask(__name__)
 
+# 固定資産リスト（たけさんのコア資産 ＋ 宇宙3大ファンド ＋ 6月上場予定の本命SPCX）
 FIXED_ASSETS = {
     "保有": {
         "VPU": "AI電力(主力)", "PAVE": "インフラ(主力)", "VOO": "S&P500", 
@@ -14,12 +15,14 @@ FIXED_ASSETS = {
     "監視": {
         "QQQ": "NASDAQ100", "GLD": "金(有事の備え)", "XLE": "エネルギー(保険)", 
         "EPI": "インド株(損切済)", "VWO": "新興国株", "VNM": "ベトナム", 
-        "CIBR": "セキュリティ", "XLV": "ヘルスケア"
+        "CIBR": "セキュリティ", "XLV": "ヘルスケア",
+        "LMT": "ロッキード(宇宙巨頭)", "ARKX": "ARK宇宙探査投信", 
+        "UFO": "宇宙エコミETF", "ITA": "米国航空宇宙防衛", "SPCX": "SpaceX(6/12上場)"
     }
 }
 
-# モメンタム（順張り）型として測定するアセットの定義
-MOMENTUM_TICKERS = ["SMH", "QQQ", "VOO", "NDAQ", "9984.T"]
+# モメンタム（順張り）型アセットの定義
+MOMENTUM_TICKERS = ["SMH", "QQQ", "VOO", "NDAQ", "9984.T", "NVDA", "MSFT", "AAPL", "TSLA", "AMZN", "META", "GOOGL", "AVGO", "TSM", "ARKX", "UFO", "SPCX"]
 
 def fetch_data(additional_tickers):
     res = []
@@ -30,114 +33,117 @@ def fetch_data(additional_tickers):
         if t not in combined_assets: 
             combined_assets[t] = f"追加({t})"
 
-    # 元の順番を保持するための通し番号（カウンター）
     serial_no = 1
+    raw_text_lines = ["No\t区分\t定規\t銘柄名\tTicker\t魅力度\t23年\t24年\t25年\tRSI\t50日乖離\t200日乖離\t3ヶ月\t52週\t出来高比\t株価"]
 
     for t, n in combined_assets.items():
         try:
             s = yf.Ticker(t)
-            info = s.info
-            hist_5y = s.history(period="5y")
-            if len(hist_5y) < 200: continue
-
-            # 実績リターン
-            ret = {2025: np.nan, 2024: np.nan, 2023: np.nan}
-            yearly = hist_5y['Close'].resample('YE').last().pct_change() * 100
-            for y in ret.keys():
-                target_date = f"{y}-12-31"
-                matching_dates = yearly.index[yearly.index.strftime('%Y-%m-%d') == target_date]
-                if not matching_dates.empty: ret[y] = yearly.loc[matching_dates[0]]
-
-            current = info.get("regularMarketPrice") or info.get("currentPrice") or hist_5y['Close'].iloc[-1]
             
-            # 各種テクニカル指標
-            ma50 = hist_5y['Close'].rolling(window=50).mean().iloc[-1]
-            dev_ma50 = ((current - ma50) / ma50) * 100
-            ma200 = hist_5y['Close'].rolling(window=200).mean().iloc[-1]
-            dev_ma200 = ((current - ma200) / ma200) * 100
-            three_months_ago = hist_5y['Close'].iloc[-63] if len(hist_5y) > 63 else hist_5y['Close'].iloc[0]
-            ret_3m = ((current - three_months_ago) / three_months_ago) * 100
-
-            delta = hist_5y['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-            rsi = 100 - (100 / (1 + (gain / loss).iloc[-1]))
-
-            h52 = hist_5y['Close'].tail(252).max()
-            l52 = hist_5y['Close'].tail(252).min()
-            pos_52w = ((current - l52) / (h52 - l52)) * 100 if h52 != l52 else 0
-            per = info.get("forwardPE") or info.get("trailingPE") or np.nan
-
-            vol_5d = hist_5y['Volume'].tail(5).mean()
-            vol_60d = hist_5y['Volume'].tail(63).mean()
-            vol_ratio = (vol_5d / vol_60d) if vol_60d > 0 else 1.0
-
-            # --- 🧠 2系統マルチ定規アルゴリズム ---
-            score = 50
-            is_momentum = t in MOMENTUM_TICKERS
-            
-            if is_momentum:
-                # 【1】モメンタム（順張り・成長株）型定規
-                # RSI（強い上昇帯を評価、バブルは厳罰）
-                if rsi > 85: score -= 30
-                elif rsi > 80: score -= 20
-                elif 45 <= rsi <= 65: score += 15
-                
-                # 50日乖離（長期上昇中の「熱さまし・黄金の押し目」を最高評価）
-                if dev_ma200 > 0: # 長期トレンドが上向きが大前提
-                    if -5 <= dev_ma50 <= 5: score += 25  # 黄金の押し目（大加点）
-                    elif 5 < dev_ma50 <= 15: score += 10 # 健全な順張り
-                
-                # 危険域の線引き
-                if dev_ma50 > 15: score -= 15  # 過熱
-                if dev_ma50 > 20: score -= 30  # チキンレースバブル（絶対買わない）
-                if dev_ma50 < -10: score -= 20 # トレンド崩壊
-                
-                # 200日線割れ（長期下落トレンド入りは即ペナルティ）
-                if dev_ma200 < 0: score -= 20
-                
-                # 予想PER（低ければ低いほど高加点のグラデーション評価）
-                if not np.isnan(per):
-                    if per < 20: score += 20
-                    elif 20 <= per < 30: score += 10
-                    elif 30 <= per < 40: score += 0
-                    elif 40 <= per <= 45: score -= 10
-                    elif per > 45: score -= 30 # 45倍超はバブル足切り
+            # まだ上場していないSPCX（SpaceX）などのエラー回避救済処置
+            if t == "SPCX":
+                current, dev_ma50, dev_ma200, ret_3m, rsi, pos_52w, vol_ratio = 0.0, 0.0, 0.0, 0.0, 50, 0, 1.0
+                ret = {2023: 0.0, 2024: 0.0, 2025: 0.0}
+                score = 50
+                is_momentum = True
             else:
-                # 【2】バリュー・ディフェンシブ（逆張り）型定規
-                if 40 <= rsi <= 55: score += 15
-                if -5 <= dev_ma50 <= 2: score += 10
-                if dev_ma200 < 0: score -= 15
-                
-                # 新興国株などの「底なし沼（落ちるナイフ）」判定
-                if dev_ma200 < 0 and rsi < 40:
-                    score -= 20  # ダラダラ下落はスコアを地の底へ落とす
-                
-                if 0 < per < 18: score += 15
-                elif per > 35: score -= 10
+                hist_5y = s.history(period="5y")
+                if len(hist_5y) < 200: continue
 
-            res.append({
+                ret = {2025: np.nan, 2024: np.nan, 2023: np.nan}
+                yearly = hist_5y['Close'].resample('YE').last().pct_change() * 100
+                for y in ret.keys():
+                    target_date = f"{y}-12-31"
+                    matching_dates = yearly.index[yearly.index.strftime('%Y-%m-%d') == target_date]
+                    if not matching_dates.empty: ret[y] = yearly.loc[matching_dates[0]]
+
+                current = s.info.get("regularMarketPrice") or s.info.get("currentPrice") or hist_5y['Close'].iloc[-1]
+                
+                # 指標の計算
+                ma50 = hist_5y['Close'].rolling(window=50).mean().iloc[-1]
+                dev_ma50 = ((current - ma50) / ma50) * 100
+                ma200 = hist_5y['Close'].rolling(window=200).mean().iloc[-1]
+                dev_ma200 = ((current - ma200) / ma200) * 100
+                three_months_ago = hist_5y['Close'].iloc[-63] if len(hist_5y) > 63 else hist_5y['Close'].iloc[0]
+                ret_3m = ((current - three_months_ago) / three_months_ago) * 100
+
+                delta = hist_5y['Close'].diff()
+                gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+                loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+                rsi = 100 - (100 / (1 + (gain / loss).iloc[-1]))
+
+                h52 = hist_5y['Close'].tail(252).max()
+                l52 = hist_5y['Close'].tail(252).min()
+                pos_52w = ((current - l52) / (h52 - l52)) * 100 if h52 != l52 else 0
+
+                vol_5d = hist_5y['Volume'].tail(5).mean()
+                vol_60d = hist_5y['Volume'].tail(63).mean()
+                vol_ratio = (vol_5d / vol_60d) if vol_60d > 0 else 1.0
+
+                # --- 🧠 V7.2 確定客観ロジック ---
+                score = 50
+                is_momentum = t in MOMENTUM_TICKERS
+                
+                if is_momentum:
+                    # ① 【モメンタム型】PERを廃止、52週高値圏の滞空過熱リスクを導入
+                    if rsi > 85: score -= 25
+                    elif 45 <= rsi <= 65: score += 15
+                    
+                    if pos_52w > 95: score -= 15 # 高度飛行による上値の重さを検知（PER二重処罰の回避）
+
+                    # トレンド評価
+                    if dev_ma200 > 0:
+                        if -5 <= dev_ma50 <= 5: score += 25  # 黄金の押し目
+                        elif 5 < dev_ma50 <= 15: score += 10 # 健全な順航
+                    
+                    # 過熱足切り
+                    if dev_ma50 > 15: score -= 20
+                    if dev_ma50 < -10: score -= 20
+                    if dev_ma200 < 0: score -= 25
+                else:
+                    # ② 【バリュー型】死んだアセット・バリュートラップの完全足切り
+                    # 3ヶ月リターンがマイナス、または長期線から大幅下落しているものは足切り
+                    if ret_3m < 0 or dev_ma200 < -3:
+                        score -= 30  # リターン5%を期待できないアセットを排除
+                    else:
+                        if 40 <= rsi <= 55: score += 15
+                        if -5 <= dev_ma50 <= 2: score += 10
+                        if dev_ma200 < 0: score -= 15
+
+                # ③ 【共通】セリングクライマックス（大底）の自動加点ロジック
+                # 短期的に大きく売られ、かつプロの買い集め（出来高急増）が起きている場合
+                if dev_ma50 < -3 and vol_ratio >= 1.5:
+                    score += 25  # 歴史的バーゲンセール確定（大加点）
+
+            final_score = int(max(0, min(100, score)))
+
+            row_data = {
                 "No": serial_no,
                 "区分": "追加" if t in additional_tickers else ("保有" if t in FIXED_ASSETS["保有"] else "監視"),
-                "定規": "モーメンタム" if is_momentum else "バリュー",
-                "銘柄名": n, "Ticker": t, "魅力度": int(max(0, min(100, score))),
+                "定規": "モメンタム" if is_momentum else "バリュー",
+                "銘柄名": n, "Ticker": t, "魅力度": final_score,
                 "23年": f"{ret[2023]:.1f}%" if not np.isnan(ret[2023]) else "-",
                 "24年": f"{ret[2024]:.1f}%" if not np.isnan(ret[2024]) else "-",
                 "25年": f"{ret[2025]:.1f}%" if not np.isnan(ret[2025]) else "-",
                 "RSI": f"{rsi:.0f}", "50日乖離": f"{dev_ma50:.1f}%", "200日乖離": f"{dev_ma200:.1f}%", 
                 "3ヶ月": f"{ret_3m:.1f}%", "52週位置": f"{pos_52w:.0f}%", 
-                "PER": f"{per:.1f}" if not np.isnan(per) else "-",
-                "出来高比": f"{vol_ratio:.1f}", "株価": f"{current:.1f}"
-            })
+                "出来高比": f"{vol_ratio:.1f}", "株価": f"{current:.1f}" if t != "SPCX" else "未上場"
+            }
+            res.append(row_data)
+
+            raw_line = f"{row_data['No']}\t{row_data['区分']}\t{row_data['定規']}\t{row_data['銘柄名']}\t{row_data['Ticker']}\t{row_data['魅力度']}\t{row_data['23年']}\t{row_data['24年']}\t{row_data['25年']}\t{row_data['RSI']}\t{row_data['50日乖離']}\t{row_data['200日乖離']}\t{row_data['3ヶ月']}\t{row_data['52週位置']}\t{row_data['出来高比']}\t{row_data['株価']}"
+            raw_text_lines.append(raw_line)
+            
             serial_no += 1
         except: continue
-    return res
+    
+    return res, "\n".join(raw_text_lines)
 
 @app.route('/')
 def index():
     custom_tickers_str = request.args.get('tickers', '')
     additional_tickers = [t.strip().upper() for t in custom_tickers_str.split(',') if t.strip()]
-    data = fetch_data(additional_tickers)
+    data, raw_text = fetch_data(additional_tickers)
     
     html = """
     <!DOCTYPE html>
@@ -145,7 +151,7 @@ def index():
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>戦略司令室 V6.9</title>
+        <title>戦略司令室 V7.2</title>
         <style>
             body { font-family: -apple-system, sans-serif; margin: 0; padding: 10px; background: #f4f6f9; color: #333; }
             h3 { margin: 10px 0; font-size: 16px; color: #1e293b; }
@@ -158,30 +164,30 @@ def index():
             th, td { padding: 7px 5px; text-align: center; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
             th { background: #f1f5f9; font-weight: bold; position: sticky; top: 0; z-index: 2; cursor: pointer; user-select: none; color: #475569; }
             th:hover { background: #cbd5e1; }
-            
-            /* 銘柄名とTickerを固定（通し番号Noの右側に配置） */
             .fixed-name { position: sticky; left: 0; background: #fff; z-index: 1; box-shadow: 2px 0 5px rgba(0,0,0,0.05); text-align: left; font-weight: bold; }
             .fixed-ticker { position: sticky; left: 75px; background: #fff; z-index: 1; box-shadow: 2px 0 5px rgba(0,0,0,0.05); }
             th.fixed-name, th.fixed-ticker { z-index: 3; background: #f1f5f9; }
-            
             .high-score { background-color: #dcfce7 !important; color: #15803d !important; font-weight: bold; }
             .low-score { background-color: #fee2e2 !important; color: #b91c1c !important; }
             .high-rsi { color: #dc2626; font-weight: bold; }
-            .high-vol { color: #d97706; font-weight: bold; border: 1px solid #fcd34d; background: #fffbeb; border-radius: 3px; padding: 1px 3px; }
+            .high-vol { background: #fffbeb; color: #b45309; font-weight: bold; border: 1px solid #fde68a; border-radius: 3px; padding: 1px 3px; }
             .badge-m { background: #eff6ff; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 9px; font-weight: bold;}
             .badge-v { background: #f5f5f5; color: #444; padding: 2px 4px; border-radius: 3px; font-size: 9px; }
-            .docs { background: #fff; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 11px; line-height: 1.6; color: #334155; }
+            .docs { background: #fff; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 11px; line-height: 1.6; color: #334155; margin-bottom: 20px;}
             .docs h4 { margin-top: 0; font-size: 13px; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px; }
+            .copy-area { width: 100%; height: 120px; font-size: 10px; font-family: monospace; border: 1px solid #ccc; padding: 5px; white-space: pre; overflow: auto; }
         </style>
     </head>
     <body>
-        <h3>🧠 戦略司令室 V6.9：2系統マルチ定規 ＆ 複数端末同期モデル</h3>
+        <h3>🧠 戦略司令室 V7.2：SpaceX直前シフト × 完全客観モデル</h3>
         
         <div class="control-panel">
-            <label>➕ 関心銘柄の追加 (カンマ区切り): </label>
-            <input type="text" id="tickerInput" placeholder="例: MSFT, NVDA">
-            <button onclick="addTickers()">追加・同期更新</button>
-            <button class="btn-clear" onclick="clearTickers()">クリア</button>
+            <form id="tickerForm" method="GET" action="/">
+                <label>➕ 関心銘柄の追加: </label>
+                <input type="text" id="tickerInput" name="tickers" placeholder="例: NVDA, MSFT" value="{{ custom_tickers_str }}">
+                <button type="submit" onclick="localStorage.setItem('kabu_v72_tickers', document.getElementById('tickerInput').value.trim().toUpperCase())">追加・同期更新</button>
+                <button type="button" class="btn-clear" onclick="localStorage.removeItem('kabu_v72_tickers'); window.location.href='/';">クリア</button>
+            </form>
         </div>
 
         <div class="table-container">
@@ -202,9 +208,8 @@ def index():
                         <th onclick="sortTable(11, true)">200日乖離 ↕</th>
                         <th onclick="sortTable(12, true)">3ヶ月 ↕</th>
                         <th onclick="sortTable(13, true)">52週 ↕</th>
-                        <th onclick="sortTable(14, true)">PER ↕</th>
-                        <th onclick="sortTable(15, true)">出来高比 ↕</th>
-                        <th onclick="sortTable(16, true)">株価 ↕</th>
+                        <th onclick="sortTable(14, true)">出来高比 ↕</th>
+                        <th onclick="sortTable(15, true)">株価 ↕</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -213,7 +218,7 @@ def index():
                         <td>{{ r['No'] }}</td>
                         <td>{{ r['区分'] }}</td>
                         <td>
-                            {% if r['定規'] == 'モーメンタム' %}
+                            {% if r['定規'] == 'モメンタム' %}
                             <span class="badge-m">モメンタム</span>
                             {% else %}
                             <span class="badge-v">バリュー</span>
@@ -221,11 +226,10 @@ def index():
                         </td>
                         <td class="fixed-name">{{ r['銘柄名'] }}</td>
                         <td class="fixed-ticker">{{ r['Ticker'] }}</td>
-                        <td class="{% if r['魅力度'] >= 70 %}high-score{% elif r['魅力度'] <= 40 %}low-score{% endif %}">{{ r['魅力度'] }}点</td>
+                        <td class="{% if r['魅力度'] >= 70 %}high-score{% elif r['魅力度'] <= 35 %}low-score{% endif %}">{{ r['魅力度'] }}点</td>
                         <td>{{ r['23年'] }}</td><td>{{ r['24年'] }}</td><td>{{ r['25年'] }}</td>
                         <td class="{% if r['RSI']|float >= 80 %}high-rsi{% endif %}">{{ r['RSI'] }}</td>
                         <td>{{ r['50日乖離'] }}</td><td>{{ r['200日乖離'] }}</td><td>{{ r['3ヶ月'] }}</td><td>{{ r['52週位置'] }}</td>
-                        <td>{{ r['PER'] }}</td>
                         <td>
                             <span class="{% if r['出来高比']|float >= 1.5 %}high-vol{% endif %}">{{ r['出来高比'] }}倍</span>
                         </td>
@@ -236,36 +240,22 @@ def index():
             </table>
         </div>
 
+        <div class="docs">
+            <h4>🤖 Gemini 壁打ち用コピペエリア（全選択してコピー）</h4>
+            <textarea class="copy-area" readonly onclick="this.select()">{{ raw_text }}</textarea>
+        </div>
+
         <script>
-            // 端末間同期とローカルストレージの連携処理
             document.addEventListener("DOMContentLoaded", function() {
-                const savedTickers = localStorage.getItem("kabu_v69_tickers");
+                const savedTickers = localStorage.getItem("kabu_v72_tickers");
                 const urlParams = new URLSearchParams(window.location.search);
                 const urlTickers = urlParams.get('tickers');
                 
-                // URLに銘柄が入っている場合は、それを正としてローカルストレージを上書き更新
-                if (urlTickers) {
-                    localStorage.setItem("kabu_v69_tickers", urlTickers);
-                    document.getElementById("tickerInput").value = urlTickers;
-                } 
-                // URLが空で、過去の記憶がある場合は自動リダイレクトして同期
-                else if (savedTickers) {
+                if (!urlTickers && savedTickers) {
                     window.location.href = "/?tickers=" + encodeURIComponent(savedTickers);
                 }
             });
 
-            function addTickers() {
-                const inputVal = document.getElementById("tickerInput").value.trim().upper();
-                localStorage.setItem("kabu_v69_tickers", inputVal);
-                window.location.href = "/?tickers=" + encodeURIComponent(inputVal);
-            }
-
-            function clearTickers() {
-                localStorage.removeItem("kabu_v69_tickers");
-                window.location.href = "/";
-            }
-
-            // 万能並び替えスクリプト（No列をクリックすれば元の順序に綺麗に戻る）
             function sortTable(n, isNum) {
                 var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
                 table = document.getElementById("kabuTable");
@@ -309,16 +299,10 @@ def index():
                 }
             }
         </script>
-
-        <div class="docs">
-            <h4>🧮 司令室 V6.9 のアルゴリズム背景</h4>
-            <p><b>1. モメンタム定規（SMH, QQQ, VOO等）:</b> 「長期トレンド（200日線）が上向き」であることを大前提とし、株価が急騰しすぎず、50日線の近く（-5%〜+5%）まで一時的に熱を冷ました「最高の押し目」を25点の大幅加点としてハイスコアを算出します。PERは45倍、50日乖離は15%〜20%を明確なバブルレッドゾーンとし、それを超えると点数が地に落ちる「階段式評価」を搭載しています。</p>
-            <p><b>2. バリュー定規（新興国、高配当等）:</b> 割安度と短期的な売られすぎ（押し目）を評価します。ただし、長期トレンド（200日線）を下回っている状態でさらにRSIが40を割るような「ダラダラ下げ（底なし沼）」の状態を検知した場合は、「落ちるナイフ」ペナルティ（-20点）が発動し、スコアを強制排除します。</p>
-        </div>
     </body>
     </html>
     """
-    return render_template_string(html, data=data, custom_tickers_str=custom_tickers_str)
+    return render_template_string(html, data=data, custom_tickers_str=custom_tickers_str, raw_text=raw_text)
 
 if __name__ == '__main__':
     app.run(debug=True)
