@@ -446,7 +446,9 @@ function openViewer(i) {
   img.src = (photos[i].thumbnailLink || '').replace('=s220', '=s1600');
   img.onload = () => resetViewer();
   document.getElementById('viewer-counter').textContent = (i + 1) + ' / ' + photos.length;
-  showScreen('viewer');
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-viewer').classList.add('active');
+  setTimeout(initHammer, 50);
 }
 
 function resetViewer() {
@@ -456,25 +458,23 @@ function resetViewer() {
 
 function applyViewerTransform(instant) {
   const img = document.getElementById('viewer-img');
-  const tr = instant ? 'none' : 'transform 0.15s ease';
-  img.style.transition = tr;
+  img.style.transition = instant ? 'none' : 'transform 0.15s ease';
   img.style.transform = `translate(calc(-50% + ${curX}px), calc(-50% + ${curY}px)) scale(${curScale})`;
 }
 
 function initHammer() {
   const el = document.getElementById('viewer-container');
   if (hammer) hammer.destroy();
-  hammer = new Hammer.Manager(el, { recognizers: [
-    [Hammer.Pinch, { enable: true }],
-    [Hammer.Pan, { direction: Hammer.DIRECTION_ALL, threshold: 5 }],
-    [Hammer.Swipe, { direction: Hammer.DIRECTION_HORIZONTAL, velocity: 0.3 }],
-    [Hammer.Tap, { event: 'doubletap', taps: 2 }],
-  ]});
+  const pinch = new Hammer.Pinch();
+  const pan = new Hammer.Pan({ direction: Hammer.DIRECTION_ALL, threshold: 5 });
+  const swipe = new Hammer.Swipe({ direction: Hammer.DIRECTION_HORIZONTAL, velocity: 0.3, threshold: 10 });
+  const doubletap = new Hammer.Tap({ event: 'doubletap', taps: 2 });
+  swipe.requireFailure(pinch);
+  pan.requireFailure(pinch);
+  hammer = new Hammer.Manager(el);
+  hammer.add([pinch, pan, swipe, doubletap]);
 
-  // ピンチ開始時のスケール・位置を記録
   hammer.on('pinchstart', () => { startScale = curScale; startX = curX; startY = curY; });
-
-  // ピンチ中：中心点を考慮して拡大
   hammer.on('pinchmove', (e) => {
     curScale = Math.min(Math.max(startScale * e.scale, 1), 8);
     curX = startX + e.deltaX;
@@ -482,7 +482,6 @@ function initHammer() {
     applyViewerTransform(true);
   });
 
-  // パン（ドラッグ）
   hammer.on('panstart', () => { startX = curX; startY = curY; });
   hammer.on('panmove', (e) => {
     if (curScale <= 1) return;
@@ -491,22 +490,13 @@ function initHammer() {
     applyViewerTransform(true);
   });
 
-  // スワイプ（等倍時のみ前後移動）
   hammer.on('swipe', (e) => {
     if (curScale > 1.1) return;
     if (e.direction === Hammer.DIRECTION_LEFT && viewerIndex < photos.length - 1) openViewer(viewerIndex + 1);
     if (e.direction === Hammer.DIRECTION_RIGHT && viewerIndex > 0) openViewer(viewerIndex - 1);
   });
 
-  // ダブルタップでリセット
   hammer.on('doubletap', () => { resetViewer(); });
-}
-
-// ビューワー画面が表示されたときHammerを初期化
-const _origShowScreen = showScreen;
-function showScreen(id) {
-  _origShowScreen(id);
-  if (id === 'viewer') setTimeout(initHammer, 50);
 }
 
 function toggleSelect(id) {
