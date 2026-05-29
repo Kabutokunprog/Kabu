@@ -5,68 +5,75 @@ import numpy as np
 
 app = Flask(__name__)
 
-# 固定資産リスト（資産の高い順の並びを厳守 ＋ ヘッジなし本命2種を常駐 ＋ ロッキード削除 ＋ 宇宙ファンド・SPCX）
-FIXED_ASSETS = {
-    "保有": {
-        "VPU": "AI電力(主力)", 
-        "PAVE": "インフラ(主力)", 
-        "VOO": "S&P500", 
-        "SMH": "半導体", 
-        "NVDA": "NVIDIA(本命)",
-        "NDAQ": "NASDAQ", 
-        "9984.T": "SBG", 
-        "7201.T": "日産", 
-        "4901.T": "富士フイルム", 
-        "1489.T": "日経高配当50",
-        "1545.T": "ニッセイNASDAQ100(投信クラス)", # 確実なデータ取得のため東証ヘッジなしコードを利用
-        "2631.T": "eMAXIS Slim NASDAQ100"       # 確実なデータ取得のため東証ヘッジなしコードを利用
-    },
-    "監視": {
-        "QQQ": "NASDAQ100(本家ドル建)", 
-        "GLD": "金(有事の備え)", 
-        "XLE": "エネルギー(保険)", 
-        "EPI": "インド株(損切済)", 
-        "VWO": "新興国株", 
-        "VNM": "ベトナム", 
-        "CIBR": "セキュリティ", 
-        "XLV": "ヘルスケア",
-        "ARKX": "ARK宇宙探査投信", 
-        "UFO": "宇宙エコミETF", 
-        "ITA": "米国航空宇宙防衛", 
-        "SPCX": "SpaceX(6/12上場)"
-    }
-}
+# ★5/29時点の実際の資産額順に厳密にソートした配列（結合バグを防ぐためTupleのListで定義）
+ORDERED_ASSETS = [
+    # --- 保有資産（資産額順） ---
+    ("SMH", "半導体", "保有"),
+    ("NDAQ", "NASDAQ", "保有"),
+    ("VOO", "S&P500", "保有"),
+    ("QQQ", "NASDAQ100(本家)", "保有"),
+    ("VPU", "AI電力(主力)", "保有"),
+    ("4901.T", "富士フイルム", "保有"),
+    ("7201.T", "日産", "保有"),
+    ("1489.T", "日経高配当50", "保有"),
+    ("9984.T", "SBG", "保有"),
+    ("PAVE", "インフラ(主力)", "保有"),
+    ("NVDA", "NVIDIA(本命)", "保有"),
+    ("1545.T", "ニッセイNASDAQ100", "保有"),
+    ("2631.T", "eMAXIS Slim NASDAQ100", "保有"),
+    # --- 監視銘柄 ---
+    ("GLD", "金(有事の備え)", "監視"),
+    ("XLE", "エネルギー(保険)", "監視"),
+    ("EPI", "インド株(損切済)", "監視"),
+    ("VWO", "新興国株", "監視"),
+    ("VNM", "ベトナム", "監視"),
+    ("CIBR", "セキュリティ", "監視"),
+    ("XLV", "ヘルスケア", "監視"),
+    ("ARKX", "ARK宇宙探査投信", "監視"),
+    ("UFO", "宇宙エコミETF", "監視"),
+    ("ITA", "米国航空宇宙防衛", "監視"),
+    ("SPCX", "SpaceX(6/12上場)", "監視")
+]
 
 # モメンタム（順張り）型アセットの定義
 MOMENTUM_TICKERS = ["SMH", "NVDA", "QQQ", "1545.T", "2631.T", "VOO", "NDAQ", "9984.T", "MSFT", "AAPL", "TSLA", "AMZN", "META", "GOOGL", "AVGO", "TSM", "ARKX", "UFO", "SPCX"]
 
 def fetch_data(additional_tickers):
     res = []
-    combined_assets = {**FIXED_ASSETS["保有"], **FIXED_ASSETS["監視"]}
     
+    # 順序を維持したベースリストを作成
+    full_list = list(ORDERED_ASSETS)
+    existing_tickers = [item[0] for item in full_list]
+    
+    # 関心銘柄の追加
     for t in additional_tickers:
         t = t.upper()
-        if t not in combined_assets: 
-            combined_assets[t] = f"追加({t})"
+        if t not in existing_tickers:
+            full_list.append((t, f"追加({t})", "追加"))
 
     serial_no = 1
     raw_text_lines = ["No\t区分\t定規\t銘柄名\tTicker\t魅力度\t23年\t24年\t25年\tRSI\t50日乖離\t200日乖離\t3ヶ月\t52週\t出来高比\t株価"]
 
-    for t, n in combined_assets.items():
+    for t, n, kbn in full_list:
         try:
             s = yf.Ticker(t)
             
-            # SPCX（SpaceX）未上場時のエラー回避処理
             if t == "SPCX":
                 current, dev_ma50, dev_ma200, ret_3m, rsi, pos_52w, vol_ratio = 0.0, 0.0, 0.0, 0.0, 50, 0, 1.0
                 ret = {2023: 0.0, 2024: 0.0, 2025: 0.0}
                 score = 50
                 is_momentum = True
             else:
+                # yfinanceの株式分割調整バグ(1545.T)を回避するため長めにデータを取得
                 hist_5y = s.history(period="5y")
                 if len(hist_5y) < 10:
                     hist_5y = s.history(period="max")
                 if len(hist_5y) == 0: continue
+
+                # 【★ニッセイ1545.Tの株式分割データバグ補正】
+                # yfinance側で直近のCloseが異常に小さくなっている場合、過去データ（100倍）側に合わせて現在値を補正
+                if t == "1545.T" and hist_5y['Close'].iloc[-1] < 500:
+                    hist_5y['Close'] = hist_5y['Close'] * 100  # データを100倍に補正して計算を正常化
 
                 ret = {2025: np.nan, 2024: np.nan, 2023: np.nan}
                 try:
@@ -80,7 +87,10 @@ def fetch_data(additional_tickers):
 
                 current = s.info.get("regularMarketPrice") or s.info.get("currentPrice") or hist_5y['Close'].iloc[-1]
                 
-                # 移動平均と乖離の算出
+                # 1545.Tの株価表示単体も100倍補正
+                if t == "1545.T" and current < 500:
+                    current = current * 100
+
                 w50 = min(50, len(hist_5y))
                 w200 = min(200, len(hist_5y))
                 ma50 = hist_5y['Close'].rolling(window=w50).mean().iloc[-1] if w50 > 0 else current
@@ -112,27 +122,23 @@ def fetch_data(additional_tickers):
                 vol_60d = hist_5y['Volume'].tail(min(63, len(hist_5y))).mean()
                 vol_ratio = (vol_5d / vol_60d) if vol_60d > 0 else 1.0
 
-                # --- 🧠 V7.5 確定客観ロジック ---
+                # --- 🧠 客観スコアリング定規 ---
                 score = 50
                 is_momentum = t in MOMENTUM_TICKERS
                 
                 if is_momentum:
-                    # ① モメンタム型：52週高値圏の滞空過熱リスク判定（PER二重処罰回避）
                     if rsi > 85: score -= 25
                     elif 45 <= rsi <= 65: score += 15
                     if pos_52w > 95: score -= 15
 
-                    # トレンド評価
                     if dev_ma200 > 0:
-                        if -5 <= dev_ma50 <= 5: score += 25  # 黄金の押し目
-                        elif 5 < dev_ma50 <= 15: score += 10 # 健全な巡航
+                        if -5 <= dev_ma50 <= 5: score += 25
+                        elif 5 < dev_ma50 <= 15: score += 10
                     
-                    # 過熱足切り
                     if dev_ma50 > 15: score -= 20
                     if dev_ma50 < -10: score -= 20
                     if dev_ma200 < 0: score -= 25
                 else:
-                    # ② バリュー型：死んだアセット（リターン5%未満）の完全排除
                     if ret_3m < 0 or dev_ma200 < -3:
                         score -= 30  
                     else:
@@ -140,7 +146,6 @@ def fetch_data(additional_tickers):
                         if -5 <= dev_ma50 <= 2: score += 10
                         if dev_ma200 < 0: score -= 15
 
-                # ③ 共通：セリングクライマックス（大底）自動検知
                 if dev_ma50 < -3 and vol_ratio >= 1.5:
                     score += 25
 
@@ -148,7 +153,7 @@ def fetch_data(additional_tickers):
 
             row_data = {
                 "No": serial_no,
-                "区分": "追加" if t in additional_tickers else ("保有" if t in FIXED_ASSETS["保有"] else "監視"),
+                "区分": kbn,
                 "定規": "モメンタム" if is_momentum else "バリュー",
                 "銘柄名": n, "Ticker": t, "魅力度": final_score,
                 "23年": f"{ret[2023]:.1f}%" if not np.isnan(ret[2023]) else "-",
@@ -211,7 +216,7 @@ def index():
         </style>
     </head>
     <body>
-        <h3>🧠 戦略司令室 V7.5：完全配置・情報集約モデル</h3>
+        <h3>🧠 戦略司令室 V7.5：完全資産連動モデル</h3>
         
         <div class="control-panel">
             <form id="tickerForm" method="GET" action="/">
