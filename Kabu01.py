@@ -5,15 +5,16 @@ import numpy as np
 
 app = Flask(__name__)
 
-# 固定資産リスト（宇宙3大ファンド ＋ 6月上場予定の本命SPCXを標準装備）
+# 固定資産リスト（たけさんのコア資産 ＋ 宇宙ファンド ＋ 6月上場SPCX ＋ NVIDIA ＋ 国内QQQ2種をデフォルト装備）
 FIXED_ASSETS = {
     "保有": {
         "VPU": "AI電力(主力)", "PAVE": "インフラ(主力)", "VOO": "S&P500", 
-        "SMH": "半導体", "NDAQ": "NASDAQ", "9984.T": "SBG", 
-        "7201.T": "日産", "4901.T": "富士フイルム", "1489.T": "日経高配当50"
+        "SMH": "半導体", "NVDA": "NVIDIA(本命)", "NDAQ": "NASDAQ", 
+        "2569.T": "上場NASDAQ100ヘッジ有(ETF)", "0431123B.ST": "SBIインベスコQQQヘッジ有(投信)",
+        "9984.T": "SBG", "7201.T": "日産", "4901.T": "富士フイルム", "1489.T": "日経高配当50"
     },
     "監視": {
-        "QQQ": "NASDAQ100", "GLD": "金(有事の備え)", "XLE": "エネルギー(保険)", 
+        "QQQ": "NASDAQ100(本家ドル建)", "GLD": "金(有事の備え)", "XLE": "エネルギー(保険)", 
         "EPI": "インド株(損切済)", "VWO": "新興国株", "VNM": "ベトナム", 
         "CIBR": "セキュリティ", "XLV": "ヘルスケア",
         "LMT": "ロッキード(宇宙巨頭)", "ARKX": "ARK宇宙探査投信", 
@@ -21,8 +22,8 @@ FIXED_ASSETS = {
     }
 }
 
-# モメンタム（順張り）型アセットの定義
-MOMENTUM_TICKERS = ["SMH", "QQQ", "VOO", "NDAQ", "9984.T", "NVDA", "MSFT", "AAPL", "TSLA", "AMZN", "META", "GOOGL", "AVGO", "TSM", "ARKX", "UFO", "SPCX"]
+# モメンタム（順張り）型アセットの定義（NVIDIA、本家QQQ、国内ヘッジ有QQQ、SpaceX等を集約）
+MOMENTUM_TICKERS = ["SMH", "NVDA", "QQQ", "2569.T", "0431123B.ST", "VOO", "NDAQ", "9984.T", "MSFT", "AAPL", "TSLA", "AMZN", "META", "GOOGL", "AVGO", "TSM", "ARKX", "UFO", "SPCX"]
 
 def fetch_data(additional_tickers):
     res = []
@@ -79,7 +80,7 @@ def fetch_data(additional_tickers):
                 vol_60d = hist_5y['Volume'].tail(63).mean()
                 vol_ratio = (vol_5d / vol_60d) if vol_60d > 0 else 1.0
 
-                # --- 🧠 V7.2 確定客観ロジック ---
+                # --- 🧠 V7.3 確定客観ロジック ---
                 score = 50
                 is_momentum = t in MOMENTUM_TICKERS
                 
@@ -147,7 +148,7 @@ def index():
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>戦略司令室 V7.2</title>
+        <title>戦略司令室 V7.3</title>
         <style>
             body { font-family: -apple-system, sans-serif; margin: 0; padding: 10px; background: #f4f6f9; color: #333; }
             h3 { margin: 10px 0; font-size: 16px; color: #1e293b; }
@@ -170,7 +171,6 @@ def index():
             .badge-m { background: #eff6ff; color: #1e40af; padding: 2px 4px; border-radius: 3px; font-size: 9px; font-weight: bold;}
             .badge-v { background: #f5f5f5; color: #444; padding: 2px 4px; border-radius: 3px; font-size: 9px; }
             
-            /* 復活：解説ドキュメントエリアのスタイル */
             .docs { background: #fff; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; line-height: 1.6; color: #334155; margin-bottom: 15px;}
             .docs h4 { margin-top: 0; font-size: 14px; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 10px; }
             .docs ul { padding-left: 20px; margin: 8px 0; }
@@ -179,14 +179,14 @@ def index():
         </style>
     </head>
     <body>
-        <h3>🧠 戦略司令室 V7.2：SpaceX直前シフト版</h3>
+        <h3>🧠 戦略司令室 V7.3：SpaceX直前シフト版</h3>
         
         <div class="control-panel">
             <form id="tickerForm" method="GET" action="/">
                 <label>➕ 関心銘柄の追加: </label>
                 <input type="text" id="tickerInput" name="tickers" placeholder="例: NVDA, MSFT" value="{{ custom_tickers_str }}">
-                <button type="submit" onclick="localStorage.setItem('kabu_v72_tickers', document.getElementById('tickerInput').value.trim().toUpperCase())">追加・同期更新</button>
-                <button type="button" class="btn-clear" onclick="localStorage.removeItem('kabu_v72_tickers'); window.location.href='/';">クリア</button>
+                <button type="submit" onclick="localStorage.setItem('kabu_v73_tickers', document.getElementById('tickerInput').value.trim().toUpperCase())">追加・同期更新</button>
+                <button type="button" class="btn-clear" onclick="localStorage.removeItem('kabu_v73_tickers'); window.location.href='/';">クリア</button>
             </form>
         </div>
 
@@ -241,7 +241,7 @@ def index():
         </div>
 
         <div class="docs">
-            <h4>📈 【完全復活】各表示項目の解説と計算式</h4>
+            <h4>📈 各表示項目の解説と計算式</h4>
             <ul>
                 <li><strong>魅力度（点数）：</strong>基本点50点からスタートし、各定規のルールに応じて自動計算される客観的な買いシグナル（70点以上で緑、35点以下で赤表示）。</li>
                 <li><strong>RSI（相対力指数）：</strong>過去14日間の「値上がり幅」と「値下がり幅」から、市場の心理的過熱度を0〜100%で表したもの。80超は買われすぎ（天井圏）、30未満は売られすぎ（底値圏）を示す。</li>
@@ -279,7 +279,7 @@ def index():
 
         <script>
             document.addEventListener("DOMContentLoaded", function() {
-                const savedTickers = localStorage.getItem("kabu_v72_tickers");
+                const savedTickers = localStorage.getItem("kabu_v73_tickers");
                 const urlParams = new URLSearchParams(window.location.search);
                 const urlTickers = urlParams.get('tickers');
                 
