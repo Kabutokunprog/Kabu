@@ -65,9 +65,9 @@ var CONFIG = {
 
   // 第4部：素材・材料 専門メディア（RSS直接購読）
   SPECIALTY_FEEDS: [
-    { name: 'MONOist',        url: 'https://monoist.itmedia.co.jp/rss/monoist_all.xml' },
-    { name: 'EE Times Japan', url: 'https://eetimes.itmedia.co.jp/rss/eetimelj.xml' },
-    { name: '日刊工業新聞',    url: 'https://www.nikkan.co.jp/rss/news.rss' }
+    { name: 'MONOist',        url: 'https://rss.itmedia.co.jp/rss/2.0/monoist.xml' },
+    { name: 'EE Times Japan', url: 'https://rss.itmedia.co.jp/rss/2.0/eetimes.xml' },
+    { name: '日刊工業新聞',    url: 'http://www.nikkan.co.jp/rss/nksrdf.rdf' }
   ]
 };
 /*================================================================*/
