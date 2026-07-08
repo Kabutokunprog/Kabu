@@ -72,22 +72,42 @@
     .pin-error { color: var(--danger); font-size: 0.75rem; margin-top: 18px; min-height: 18px; }
     .pin-setup-hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 14px; text-align: center; max-width: 240px; line-height: 1.6; }
 
-    /* MAIN */
-    #screen-main { padding: 0; justify-content: flex-start; background: var(--bg); }
+    /* TOP BAR (shared by folders & photo grid) */
     .top-bar {
       width: 100%; display: flex; align-items: center; justify-content: space-between;
-      padding: 52px 16px 12px; border-bottom: 1px solid #222;
+      padding: 52px 16px 12px; border-bottom: 1px solid #222; gap: 10px;
     }
-    .top-bar-title { font-size: 0.9rem; font-weight: 400; letter-spacing: 0.12em; }
+    .top-bar-title { font-size: 0.9rem; font-weight: 400; letter-spacing: 0.12em; flex: 1; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .top-bar-right { display: flex; gap: 8px; }
     .top-bar-btn {
       background: transparent; border: 1px solid #333; border-radius: 3px;
       padding: 6px 12px; color: var(--text-muted);
       font-size: 0.75rem; font-family: 'DM Sans', sans-serif; cursor: pointer;
+      white-space: nowrap;
     }
     .top-bar-btn:active { background: #222; }
     .top-bar-btn.danger { border-color: #442222; color: var(--danger); }
 
+    /* FOLDERS (landing) */
+    #screen-folders { padding: 0; justify-content: flex-start; background: var(--bg); }
+    .folder-list {
+      flex: 1; width: 100%; overflow-y: auto;
+      display: grid; grid-template-columns: repeat(2, 1fr);
+      gap: 12px; align-content: start; padding: 14px 14px 110px;
+    }
+    .folder-card { cursor: pointer; }
+    .folder-cover {
+      width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden;
+      background: #1c1c1c; display: flex; align-items: center; justify-content: center;
+    }
+    .folder-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .folder-cover-empty { width: 100%; height: 100%; background: repeating-linear-gradient(45deg,#181818,#181818 10px,#1c1c1c 10px,#1c1c1c 20px); }
+    .folder-meta { display: flex; align-items: baseline; justify-content: space-between; padding: 8px 4px 0; gap: 8px; }
+    .folder-name { font-size: 0.85rem; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .folder-count { font-size: 0.72rem; color: var(--text-muted); flex-shrink: 0; }
+
+    /* PHOTO GRID (inside a folder) */
+    #screen-main { padding: 0; justify-content: flex-start; background: var(--bg); }
     .photo-grid {
       flex: 1; width: 100%; overflow-y: auto;
       display: grid; grid-template-columns: repeat(3, 1fr);
@@ -124,26 +144,71 @@
     .fab:active { transform: scale(0.93); }
     .fab svg { color: #111; }
 
-    .delete-bar {
+    /* ACTION BAR (select mode: move / delete) */
+    .action-bar {
       position: fixed; bottom: 0; left: 0; right: 0;
       background: #1c1c1c; border-top: 1px solid #2a2a2a;
       padding: 12px 20px 32px;
       display: none; align-items: center; justify-content: space-between;
     }
-    .delete-bar.show { display: flex; }
-    .delete-count { font-size: 0.82rem; color: var(--text-muted); }
-    .delete-confirm-btn {
+    .action-bar.show { display: flex; }
+    .action-count { font-size: 0.82rem; color: var(--text-muted); }
+    .action-btns { display: flex; gap: 8px; }
+    .btn-primary {
       background: var(--danger); border: none; border-radius: 4px;
-      padding: 10px 20px; color: #fff; font-size: 0.85rem;
+      padding: 10px 18px; color: #fff; font-size: 0.85rem;
       font-family: 'DM Sans', sans-serif; cursor: pointer;
     }
-    .delete-cancel-btn {
+    .btn-move {
+      background: #2f6fed; border: none; border-radius: 4px;
+      padding: 10px 18px; color: #fff; font-size: 0.85rem;
+      font-family: 'DM Sans', sans-serif; cursor: pointer;
+    }
+    .btn-ghost {
       background: transparent; border: 1px solid #333; border-radius: 4px;
-      padding: 10px 16px; color: var(--text-muted); font-size: 0.85rem;
+      padding: 10px 14px; color: var(--text-muted); font-size: 0.85rem;
       font-family: 'DM Sans', sans-serif; cursor: pointer;
     }
 
     .loading-bar { position: fixed; top: 0; left: 0; height: 2px; background: #fff; width: 0%; transition: width 0.3s; z-index: 100; }
+
+    /* TOAST (messages) */
+    .toast {
+      position: fixed; top: 70px; left: 50%; transform: translateX(-50%) translateY(-12px);
+      background: rgba(30,30,30,0.96); color: #fff; border: 1px solid #333;
+      padding: 12px 18px; border-radius: 8px; font-size: 0.8rem; line-height: 1.5;
+      max-width: 84%; text-align: center; z-index: 300;
+      opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* BOTTOM SHEET (move destination / new folder name) */
+    .sheet-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 200;
+      display: none; align-items: flex-end;
+    }
+    .sheet-backdrop.show { display: flex; }
+    .sheet {
+      width: 100%; background: #1c1c1c; border-top-left-radius: 16px; border-top-right-radius: 16px;
+      padding: 20px 20px 40px; max-height: 70vh; overflow-y: auto;
+    }
+    .sheet-title { font-size: 0.85rem; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 14px; text-align: center; }
+    .sheet-item {
+      width: 100%; text-align: left; background: #262626; border: 1px solid #333;
+      border-radius: 8px; padding: 14px 16px; color: var(--text); font-size: 0.9rem;
+      font-family: 'DM Sans', sans-serif; cursor: pointer; margin-bottom: 8px;
+    }
+    .sheet-item:active { background: #2f2f2f; }
+    .sheet-empty { color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 20px; }
+    .sheet-input {
+      width: 100%; background: #262626; border: 1px solid #333; border-radius: 8px;
+      padding: 14px 16px; color: var(--text); font-size: 1rem;
+      font-family: 'DM Sans', sans-serif; margin-bottom: 14px;
+    }
+    .sheet-row { display: flex; gap: 8px; }
+    .sheet-row .btn-primary, .sheet-row .btn-ghost { flex: 1; text-align: center; background: #fff; color: #111; }
+    .sheet-row .btn-ghost { background: transparent; color: var(--text-muted); }
 
     /* CAMERA */
     #screen-camera { padding: 0; background: #000; justify-content: flex-end; }
@@ -169,6 +234,7 @@
 <body>
 
 <div class="loading-bar" id="loading-bar"></div>
+<div class="toast" id="toast"></div>
 
 <!-- LOGIN -->
 <div class="screen active" id="screen-login">
@@ -213,27 +279,44 @@
   <div class="pin-setup-hint" id="pin-setup-hint"></div>
 </div>
 
-<!-- MAIN -->
-<div class="screen" id="screen-main">
+<!-- FOLDERS (landing) -->
+<div class="screen" id="screen-folders">
   <div class="top-bar">
-    <div class="top-bar-title">PHOTOS FOR JK</div>
+    <div class="top-bar-title" style="text-align:left;">PHOTOS FOR JK</div>
     <div class="top-bar-right">
-      <button class="top-bar-btn danger" id="btn-select-mode">選択</button>
+      <button class="top-bar-btn" id="btn-add-folder">＋フォルダ</button>
       <button class="top-bar-btn" id="btn-logout">ログアウト</button>
     </div>
   </div>
-  <div class="photo-grid" id="photo-grid"></div>
-  <button class="fab" id="btn-camera">
+  <div class="folder-list" id="folder-list"></div>
+  <button class="fab fab-camera">
     <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
       <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
     </svg>
   </button>
-  <div class="delete-bar" id="delete-bar">
-    <span class="delete-count" id="delete-count">0枚選択中</span>
-    <div style="display:flex;gap:8px;">
-      <button class="delete-cancel-btn" id="btn-delete-cancel">キャンセル</button>
-      <button class="delete-confirm-btn" id="btn-delete-confirm">削除</button>
+</div>
+
+<!-- PHOTO GRID (inside a folder) -->
+<div class="screen" id="screen-main">
+  <div class="top-bar">
+    <button class="top-bar-btn" id="btn-back-folders">← フォルダ</button>
+    <div class="top-bar-title" id="folder-title">未分類</div>
+    <button class="top-bar-btn danger" id="btn-select-mode">選択</button>
+  </div>
+  <div class="photo-grid" id="photo-grid"></div>
+  <button class="fab fab-camera">
+    <svg width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+      <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+    </svg>
+  </button>
+  <div class="action-bar" id="action-bar">
+    <span class="action-count" id="action-count">0枚選択中</span>
+    <div class="action-btns">
+      <button class="btn-ghost" id="btn-select-cancel">キャンセル</button>
+      <button class="btn-move" id="btn-move">移動</button>
+      <button class="btn-primary" id="btn-delete-confirm">削除</button>
     </div>
   </div>
 </div>
@@ -269,6 +352,26 @@
   <div class="viewer-counter" id="viewer-counter"></div>
 </div>
 
+<!-- MOVE SHEET -->
+<div class="sheet-backdrop" id="move-sheet">
+  <div class="sheet">
+    <div class="sheet-title">移動先のフォルダを選んでください</div>
+    <div id="move-list"></div>
+  </div>
+</div>
+
+<!-- NEW FOLDER SHEET -->
+<div class="sheet-backdrop" id="name-sheet">
+  <div class="sheet">
+    <div class="sheet-title">新しいフォルダの名前</div>
+    <input class="sheet-input" id="name-input" type="text" maxlength="40" placeholder="例：旅行、記念日 …" />
+    <div class="sheet-row">
+      <button class="btn-ghost" id="btn-name-cancel">キャンセル</button>
+      <button class="btn-primary" id="btn-name-ok">作成</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const CLIENT_ID = '381486316352-vamio1c8q77hruh9i4c0s2artl1c8bji.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly';
@@ -276,6 +379,8 @@ const FOLDER_ID = '1wph83Yp41UGeLKLy9QIrrvnnF16M_alK';
 const PIN_KEY = 'jk_pin';
 const TOKEN_KEY = 'jk_token';
 const TOKEN_EXP_KEY = 'jk_token_exp';
+const DEFAULT_FOLDERS = ['2人', '淳用', '加奈用'];
+const UNSORTED_NAME = '未分類';
 
 let pinBuffer = '';
 let pinMode = 'enter';
@@ -285,15 +390,34 @@ let stream = null;
 let tokenClient = null;
 let accessToken = null;
 let photos = [];
+let folders = [];
 let selectMode = false;
 let selectedIds = new Set();
+let currentParentId = FOLDER_ID;   // 今開いているフォルダ（FOLDER_ID = 未分類）
+let currentFolderName = UNSORTED_NAME;
+let cameraFrom = 'folders';         // カメラを開いた元の画面
 
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-' + id).classList.add('active');
 }
 
-// トークン保存・読み込み（約55分間有効）
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+function setLoading(pct) { document.getElementById('loading-bar').style.width = pct + '%'; }
+
+// ===== TOKEN（約55分間有効） =====
 function saveToken(token) {
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(TOKEN_EXP_KEY, (Date.now() + 55 * 60 * 1000).toString());
@@ -308,18 +432,26 @@ function clearToken() {
   localStorage.removeItem(TOKEN_EXP_KEY);
 }
 
+// ===== PIN（平文で保存しない：簡易変換して保存） =====
+function pinHash(pin) {
+  let h = 0;
+  const s = 'jk-' + pin + '-2026';
+  for (let i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) >>> 0; }
+  return 'h' + h.toString(36);
+}
+
+// ===== GOOGLE LOGIN =====
 function initGoogle() {
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID,
     scope: SCOPES,
     callback: (response) => {
-      if (response.error) return;
+      if (response.error) { showToast('ログインをキャンセルしました'); return; }
       accessToken = response.access_token;
       saveToken(accessToken);
       afterLogin();
     }
   });
-  // 保存済みトークンがあればGoogleログインをスキップ
   const saved = loadToken();
   if (saved) { accessToken = saved; afterLogin(); }
 }
@@ -370,7 +502,7 @@ function processPin() {
     document.getElementById('pin-setup-hint').textContent = '';
   } else if (pinMode === 'confirm') {
     if (pinBuffer === pinSetupFirst) {
-      localStorage.setItem(PIN_KEY, pinBuffer);
+      localStorage.setItem(PIN_KEY, pinHash(pinBuffer));
       enterApp();
     } else {
       document.getElementById('pin-error').textContent = '一致しません。最初からやり直してください';
@@ -382,43 +514,156 @@ function processPin() {
       }, 1500);
     }
   } else {
-    if (pinBuffer === localStorage.getItem(PIN_KEY)) { enterApp(); }
-    else {
+    const stored = localStorage.getItem(PIN_KEY);
+    // 旧バージョンは平文で保存されていたため、それも受け付けて次回からハッシュに移行
+    if (stored === pinHash(pinBuffer) || stored === pinBuffer) {
+      if (stored === pinBuffer) localStorage.setItem(PIN_KEY, pinHash(pinBuffer));
+      enterApp();
+    } else {
       document.getElementById('pin-error').textContent = 'PINが正しくありません';
       pinBuffer = ''; updatePinDots();
     }
   }
 }
 
-function enterApp() { showScreen('main'); loadPhotos(); }
+function enterApp() { showScreen('folders'); loadFolders(); }
 
+// ===== DRIVE 通信（失敗は必ず例外にして呼び出し側で通知） =====
 async function driveRequest(url, options = {}) {
-  const res = await fetch(url, {
-    ...options,
-    headers: { 'Authorization': 'Bearer ' + accessToken, ...(options.headers || {}) }
-  });
-  if (res.status === 401) { clearToken(); accessToken = null; showScreen('login'); return {}; }
+  let res;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers: { 'Authorization': 'Bearer ' + accessToken, ...(options.headers || {}) }
+    });
+  } catch (e) {
+    throw new Error('通信に失敗しました。電波状況をご確認ください');
+  }
+  if (res.status === 401) {
+    clearToken(); accessToken = null; showScreen('login');
+    throw new Error('ログインの有効期限が切れました。もう一度ログインしてください');
+  }
+  if (!res.ok) throw new Error('サーバーエラーが発生しました（' + res.status + '）');
   if (res.status === 204) return {};
-  return res.json();
+  const ct = res.headers.get('content-type') || '';
+  return ct.includes('json') ? res.json() : {};
 }
 
+// 画像一覧のURLを組み立てる（サブフォルダは image ではないので自動的に除外される）
+function imageQuery(parentId, fields, pageSize, pageToken) {
+  const q = `'${parentId}'+in+parents+and+trashed=false+and+(mimeType='image/jpeg'+or+mimeType='image/png'+or+mimeType='image/heic'+or+mimeType='image/gif')`;
+  let url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&orderBy=createdTime+desc&pageSize=${pageSize}`;
+  if (pageToken) url += `&pageToken=${pageToken}`;
+  return url;
+}
+
+// ===== FOLDERS =====
+async function listSubfolders() {
+  const res = await driveRequest(
+    `https://www.googleapis.com/drive/v3/files?q='${FOLDER_ID}'+in+parents+and+trashed=false+and+mimeType='application/vnd.google-apps.folder'&fields=files(id,name)&orderBy=name&pageSize=100`
+  );
+  return res.files || [];
+}
+
+async function ensureDefaultFolders(existing) {
+  const names = existing.map(f => f.name);
+  for (const name of DEFAULT_FOLDERS) {
+    if (!names.includes(name)) {
+      const created = await driveRequest('https://www.googleapis.com/drive/v3/files?fields=id,name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [FOLDER_ID] })
+      });
+      existing.push({ id: created.id, name: created.name || name });
+    }
+  }
+  return existing;
+}
+
+// フォルダごとの代表写真と枚数（最大1000枚まで数える）
+async function folderMeta(parentId) {
+  const res = await driveRequest(imageQuery(parentId, 'nextPageToken,files(id,thumbnailLink)', 1000));
+  const files = res.files || [];
+  return { cover: (files[0] && files[0].thumbnailLink) || '', count: files.length, more: !!res.nextPageToken };
+}
+
+async function loadFolders() {
+  setLoading(20);
+  try {
+    let subs = await listSubfolders();
+    subs = await ensureDefaultFolders(subs);
+    const entries = [{ id: FOLDER_ID, name: UNSORTED_NAME }, ...subs];
+    setLoading(50);
+    const withMeta = await Promise.all(entries.map(async (f) => {
+      try { return { ...f, ...(await folderMeta(f.id)) }; }
+      catch (e) { return { ...f, cover: '', count: 0, more: false }; }
+    }));
+    folders = withMeta;
+    setLoading(100); setTimeout(() => setLoading(0), 300);
+    renderFolders();
+  } catch (e) {
+    setLoading(0);
+    showToast(e.message || 'フォルダを読み込めませんでした');
+  }
+}
+
+function renderFolders() {
+  const wrap = document.getElementById('folder-list');
+  wrap.innerHTML = folders.map((f, i) => `
+    <div class="folder-card" onclick="openFolderIndex(${i})">
+      <div class="folder-cover">${f.cover ? `<img src="${f.cover}" />` : `<div class="folder-cover-empty"></div>`}</div>
+      <div class="folder-meta">
+        <span class="folder-name">${escapeHtml(f.name)}</span>
+        <span class="folder-count">${f.count}${f.more ? '+' : ''}枚</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openFolderIndex(i) {
+  const f = folders[i];
+  currentParentId = f.id;
+  currentFolderName = f.name;
+  document.getElementById('folder-title').textContent = f.name;
+  exitSelectMode();
+  showScreen('main');
+  loadPhotos();
+}
+
+function goFolders() {
+  exitSelectMode();
+  showScreen('folders');
+  loadFolders();
+}
+
+// ===== PHOTOS（今のフォルダの写真を全ページ読み込む） =====
 async function loadPhotos() {
   setLoading(30);
-  // Drive内のJPG/PNG/HEIC/GIF全て取得（直接入れたファイルも表示）
-  const res = await driveRequest(
-    `https://www.googleapis.com/drive/v3/files?q='${FOLDER_ID}'+in+parents+and+trashed=false+and+(mimeType='image/jpeg'+or+mimeType='image/png'+or+mimeType='image/heic'+or+mimeType='image/gif')&fields=files(id,name,thumbnailLink,mimeType)&orderBy=createdTime+desc&pageSize=200`
-  );
-  setLoading(100);
-  setTimeout(() => setLoading(0), 300);
-  photos = res.files || [];
-  renderPhotos();
+  try {
+    let all = [];
+    let token = null;
+    do {
+      const res = await driveRequest(
+        imageQuery(currentParentId, 'nextPageToken,files(id,name,thumbnailLink,mimeType)', 1000, token)
+      );
+      all = all.concat(res.files || []);
+      token = res.nextPageToken;
+      setLoading(30 + Math.min(60, all.length / 20));
+    } while (token);
+    photos = all;
+    setLoading(100); setTimeout(() => setLoading(0), 300);
+    renderPhotos();
+  } catch (e) {
+    setLoading(0);
+    showToast(e.message || '写真を読み込めませんでした');
+  }
 }
 
 function renderPhotos() {
   const grid = document.getElementById('photo-grid');
   grid.className = 'photo-grid' + (selectMode ? ' select-mode' : '');
   if (photos.length === 0) {
-    grid.innerHTML = `<div class="empty-state"><p>まだ写真がありません<br>カメラボタンで撮影しましょう</p></div>`;
+    grid.innerHTML = `<div class="empty-state"><p>このフォルダには写真がありません<br>カメラボタンで撮影しましょう</p></div>`;
     return;
   }
   grid.innerHTML = photos.map((p, i) => `
@@ -440,10 +685,17 @@ let hammer = null;
 let curScale = 1, curX = 0, curY = 0;
 let startScale = 1, startX = 0, startY = 0;
 
+// サムネイルURLを高解像度版に（書式が変わっても壊れにくいよう正規表現で置換）
+function highRes(link) {
+  if (!link) return '';
+  if (/=s\d+/.test(link)) return link.replace(/=s\d+(-c)?/, '=s1600');
+  return link;
+}
+
 function openViewer(i) {
   viewerIndex = i;
   const img = document.getElementById('viewer-img');
-  img.src = (photos[i].thumbnailLink || '').replace('=s220', '=s1600');
+  img.src = highRes(photos[i].thumbnailLink || '');
   img.onload = () => resetViewer();
   document.getElementById('viewer-counter').textContent = (i + 1) + ' / ' + photos.length;
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -467,12 +719,10 @@ function initHammer() {
   if (hammer) hammer.destroy();
   const pinch = new Hammer.Pinch();
   const pan = new Hammer.Pan({ direction: Hammer.DIRECTION_ALL, threshold: 5 });
-  const swipe = new Hammer.Swipe({ direction: Hammer.DIRECTION_HORIZONTAL, velocity: 0.3, threshold: 10 });
   const doubletap = new Hammer.Tap({ event: 'doubletap', taps: 2 });
-  swipe.requireFailure(pinch);
   pan.requireFailure(pinch);
   hammer = new Hammer.Manager(el);
-  hammer.add([pinch, pan, swipe, doubletap]);
+  hammer.add([pinch, pan, doubletap]);
 
   hammer.on('pinchstart', () => { startScale = curScale; startX = curX; startY = curY; });
   hammer.on('pinchmove', (e) => {
@@ -484,100 +734,215 @@ function initHammer() {
 
   hammer.on('panstart', () => { startX = curX; startY = curY; });
   hammer.on('panmove', (e) => {
-    if (curScale <= 1) return;
+    if (curScale <= 1) return;   // 等倍のときは画像を動かさない（横スワイプ判定に回す）
     curX = startX + e.deltaX;
     curY = startY + e.deltaY;
     applyViewerTransform(true);
   });
 
-  hammer.on('swipe', (e) => {
+  // 指を離した瞬間の横移動量で前後へ（Swipe認識より確実）
+  hammer.on('panend', (e) => {
     if (curScale > 1.1) return;
-    if (e.direction === Hammer.DIRECTION_LEFT && viewerIndex < photos.length - 1) openViewer(viewerIndex + 1);
-    if (e.direction === Hammer.DIRECTION_RIGHT && viewerIndex > 0) openViewer(viewerIndex - 1);
+    if (Math.abs(e.deltaX) > 60 && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+      if (e.deltaX < 0 && viewerIndex < photos.length - 1) openViewer(viewerIndex + 1);
+      else if (e.deltaX > 0 && viewerIndex > 0) openViewer(viewerIndex - 1);
+    }
   });
 
   hammer.on('doubletap', () => { resetViewer(); });
 }
 
+// ===== SELECT / MOVE / DELETE =====
 function toggleSelect(id) {
   if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
-  updateDeleteBar(); renderPhotos();
+  updateActionBar(); renderPhotos();
 }
 
-function updateDeleteBar() {
-  document.getElementById('delete-bar').classList.toggle('show', selectMode);
-  document.getElementById('delete-count').textContent = selectedIds.size + '枚選択中';
+function updateActionBar() {
+  document.getElementById('action-bar').classList.toggle('show', selectMode);
+  document.getElementById('action-count').textContent = selectedIds.size + '枚選択中';
+}
+
+function exitSelectMode() {
+  selectMode = false;
+  selectedIds.clear();
+  document.getElementById('btn-select-mode').textContent = '選択';
+  updateActionBar();
 }
 
 document.getElementById('btn-select-mode').addEventListener('click', () => {
   selectMode = !selectMode; selectedIds.clear();
   document.getElementById('btn-select-mode').textContent = selectMode ? '完了' : '選択';
-  updateDeleteBar(); renderPhotos();
+  updateActionBar(); renderPhotos();
 });
 
-document.getElementById('btn-delete-cancel').addEventListener('click', () => {
-  selectMode = false; selectedIds.clear();
-  document.getElementById('btn-select-mode').textContent = '選択';
-  updateDeleteBar(); renderPhotos();
+document.getElementById('btn-select-cancel').addEventListener('click', () => {
+  exitSelectMode(); renderPhotos();
 });
 
+document.getElementById('btn-back-folders').addEventListener('click', goFolders);
+
+// --- 移動 ---
+document.getElementById('btn-move').addEventListener('click', () => {
+  if (selectedIds.size === 0) { showToast('写真を選んでください'); return; }
+  const list = document.getElementById('move-list');
+  const dests = folders.filter(f => f.id !== currentParentId);
+  if (dests.length === 0) {
+    list.innerHTML = `<div class="sheet-empty">移動先のフォルダがありません</div>`;
+  } else {
+    list.innerHTML = dests.map(f => `<button class="sheet-item" onclick="doMove('${f.id}')">${escapeHtml(f.name)}</button>`).join('');
+  }
+  document.getElementById('move-sheet').classList.add('show');
+});
+
+document.getElementById('move-sheet').addEventListener('click', (e) => {
+  if (e.target.id === 'move-sheet') e.currentTarget.classList.remove('show');
+});
+
+async function doMove(destId) {
+  document.getElementById('move-sheet').classList.remove('show');
+  const ids = [...selectedIds];
+  let fail = 0;
+  for (let i = 0; i < ids.length; i++) {
+    setLoading(Math.round((i / ids.length) * 90) + 5);
+    try {
+      await driveRequest(
+        `https://www.googleapis.com/drive/v3/files/${ids[i]}?addParents=${destId}&removeParents=${currentParentId}&fields=id`,
+        { method: 'PATCH' }
+      );
+    } catch (e) { fail++; }
+  }
+  setLoading(100); setTimeout(() => setLoading(0), 300);
+  exitSelectMode();
+  if (fail > 0) showToast(`${fail}枚は移動できませんでした（手動で追加した写真は移動できません）`);
+  else showToast('移動しました');
+  loadPhotos();
+}
+
+// --- 削除 ---
 document.getElementById('btn-delete-confirm').addEventListener('click', async () => {
-  if (selectedIds.size === 0) return;
+  if (selectedIds.size === 0) { showToast('写真を選んでください'); return; }
   if (!confirm(selectedIds.size + '枚の写真を削除しますか？')) return;
   const ids = [...selectedIds];
+  let fail = 0;
   for (let i = 0; i < ids.length; i++) {
-    setLoading(Math.round((i / ids.length) * 90));
-    await fetch(`https://www.googleapis.com/drive/v3/files/${ids[i]}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': 'Bearer ' + accessToken }
-    });
+    setLoading(Math.round((i / ids.length) * 90) + 5);
+    try {
+      await driveRequest(`https://www.googleapis.com/drive/v3/files/${ids[i]}`, { method: 'DELETE' });
+    } catch (e) { fail++; }
   }
-  selectMode = false; selectedIds.clear();
-  document.getElementById('btn-select-mode').textContent = '選択';
-  updateDeleteBar();
-  await loadPhotos();
+  setLoading(100); setTimeout(() => setLoading(0), 300);
+  exitSelectMode();
+  if (fail > 0) showToast(`${fail}枚は削除できませんでした（手動で追加した写真は削除できません）`);
+  else showToast('削除しました');
+  loadPhotos();
 });
 
-async function uploadPhoto(blob) {
-  document.getElementById('uploading-overlay').classList.add('show');
-  const filename = `photo_${Date.now()}.jpg`;
-  const form = new FormData();
-  form.append('metadata', new Blob([JSON.stringify({ name: filename, parents: [FOLDER_ID] })], { type: 'application/json' }));
-  form.append('file', blob);
-  await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-    method: 'POST', headers: { 'Authorization': 'Bearer ' + accessToken }, body: form
-  });
-  document.getElementById('uploading-overlay').classList.remove('show');
-  showScreen('main'); loadPhotos();
+// ===== NEW FOLDER =====
+document.getElementById('btn-add-folder').addEventListener('click', () => {
+  document.getElementById('name-input').value = '';
+  document.getElementById('name-sheet').classList.add('show');
+  setTimeout(() => document.getElementById('name-input').focus(), 100);
+});
+document.getElementById('btn-name-cancel').addEventListener('click', () => {
+  document.getElementById('name-sheet').classList.remove('show');
+});
+document.getElementById('name-sheet').addEventListener('click', (e) => {
+  if (e.target.id === 'name-sheet') e.currentTarget.classList.remove('show');
+});
+document.getElementById('btn-name-ok').addEventListener('click', createFolder);
+
+async function createFolder() {
+  const name = document.getElementById('name-input').value.trim();
+  if (!name) { showToast('フォルダ名を入力してください'); return; }
+  document.getElementById('name-sheet').classList.remove('show');
+  setLoading(40);
+  try {
+    await driveRequest('https://www.googleapis.com/drive/v3/files?fields=id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [FOLDER_ID] })
+    });
+    setLoading(0);
+    showToast('フォルダを作成しました');
+    loadFolders();
+  } catch (e) {
+    setLoading(0);
+    showToast(e.message || 'フォルダを作成できませんでした');
+  }
 }
 
-async function startCamera() {
-  if (stream) stream.getTracks().forEach(t => t.stop());
-  stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
-  });
-  document.getElementById('video').srcObject = stream;
-  showScreen('camera');
+// ===== UPLOAD（撮影した写真は必ず「未分類」へ） =====
+async function uploadPhoto(blob) {
+  document.getElementById('uploading-overlay').classList.add('show');
+  try {
+    const filename = `photo_${Date.now()}.jpg`;
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({ name: filename, parents: [FOLDER_ID] })], { type: 'application/json' }));
+    form.append('file', blob);
+    await driveRequest('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST', body: form
+    });
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    document.getElementById('uploading-overlay').classList.remove('show');
+    // 撮影後は「未分類」を開いた状態に
+    currentParentId = FOLDER_ID;
+    currentFolderName = UNSORTED_NAME;
+    document.getElementById('folder-title').textContent = UNSORTED_NAME;
+    exitSelectMode();
+    showScreen('main');
+    loadPhotos();
+  } catch (e) {
+    document.getElementById('uploading-overlay').classList.remove('show');
+    showToast(e.message || '保存に失敗しました。もう一度お試しください');
+  }
 }
-document.getElementById('btn-camera').addEventListener('click', startCamera);
-document.getElementById('btn-flip').addEventListener('click', () => { facingMode = facingMode === 'environment' ? 'user' : 'environment'; startCamera(); });
-document.getElementById('btn-cam-back').addEventListener('click', () => { if (stream) stream.getTracks().forEach(t => t.stop()); showScreen('main'); });
+
+// ===== CAMERA =====
+async function startCamera() {
+  cameraFrom = (document.querySelector('.screen.active') || {}).id
+    ? document.querySelector('.screen.active').id.replace('screen-', '') : 'folders';
+  try {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
+    });
+    document.getElementById('video').srcObject = stream;
+    showScreen('camera');
+  } catch (e) {
+    showToast('カメラを使えませんでした。ブラウザのカメラ許可をご確認ください');
+  }
+}
+
+document.querySelectorAll('.fab-camera').forEach(btn => btn.addEventListener('click', startCamera));
+
+document.getElementById('btn-flip').addEventListener('click', () => {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  startCamera();
+});
+document.getElementById('btn-cam-back').addEventListener('click', () => {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  showScreen(cameraFrom === 'camera' ? 'folders' : cameraFrom);
+});
 document.getElementById('btn-shutter').addEventListener('click', () => {
   const video = document.getElementById('video');
   const canvas = document.createElement('canvas');
   canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
-  canvas.toBlob(blob => uploadPhoto(blob), 'image/jpeg', 0.92);
+  canvas.toBlob(blob => {
+    if (blob) uploadPhoto(blob);
+    else showToast('撮影に失敗しました。もう一度お試しください');
+  }, 'image/jpeg', 0.92);
 });
 
 document.getElementById('btn-viewer-close').addEventListener('click', () => showScreen('main'));
 
 document.getElementById('btn-logout').addEventListener('click', () => {
   if (accessToken) google.accounts.oauth2.revoke(accessToken, () => {});
-  clearToken(); accessToken = null; photos = []; showScreen('login');
+  clearToken(); accessToken = null; photos = []; folders = [];
+  currentParentId = FOLDER_ID; currentFolderName = UNSORTED_NAME;
+  showScreen('login');
 });
-
-function setLoading(pct) { document.getElementById('loading-bar').style.width = pct + '%'; }
 
 window.addEventListener('load', () => {
   const script = document.createElement('script');
