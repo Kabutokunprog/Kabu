@@ -182,10 +182,6 @@ export default function Dashboard({
         <SummaryCards transactions={childTransactions} />
       </div>
 
-      <div className="mt-6">
-        <MonthlyTable transactions={childTransactions} />
-      </div>
-
       {isEditor && (
         <div className="mt-6 rounded-xl2 bg-white p-4 shadow-sm">
           {flash && (
@@ -279,6 +275,10 @@ export default function Dashboard({
           </button>
         </div>
       )}
+
+      <div className="mt-6">
+        <MonthlyTable transactions={childTransactions} />
+      </div>
 
       <div className="mt-6">
         <p className="mb-3 text-xs font-bold text-ink/40">さいきんのきろく</p>
