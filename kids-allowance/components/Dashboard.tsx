@@ -43,8 +43,10 @@ export default function Dashboard({
   const [selectedChildId, setSelectedChildId] = useState(defaultChildId);
   const [transactions, setTransactions] = useState(initialTransactions);
   const [type, setType] = useState<"give" | "return">("give");
-  const [customAmount, setCustomAmount] = useState("");
+  const [amountText, setAmountText] = useState("");
+  const [purposeText, setPurposeText] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
@@ -59,56 +61,86 @@ export default function Dashboard({
     return () => clearTimeout(timer);
   }, [flash]);
 
+  // 他の人がスマホ・PCで記録を追加/削除/修正したら、こちらの画面も自動で最新にする
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel("allowance_transactions_changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "allowance_transactions" },
+        () => router.refresh()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const selectedChild = children.find((c) => c.id === selectedChildId) ?? children[0];
   const childTransactions = transactions.filter((t) => t.child_id === selectedChildId);
 
-  async function quickSave(amount: number) {
-    if (busy || amount <= 0) return;
+  const amountNumber = Number(amountText);
+  const canQuickSave = amountNumber > 0 && Number.isFinite(amountNumber);
+
+  async function confirmSave() {
+    if (busy || !canQuickSave) return;
     setBusy(true);
+    setErrorMessage(null);
     const supabase = createClient();
-    await supabase.from("allowance_transactions").insert({
+    const { error } = await supabase.from("allowance_transactions").insert({
       child_id: selectedChildId,
-      amount: type === "give" ? amount : -amount,
+      amount: type === "give" ? amountNumber : -amountNumber,
       category: type === "give" ? "お小遣い" : "返却",
-      purpose: null,
+      purpose: purposeText.trim() || null,
       occurred_on: todayStr(),
       created_by_email: currentUserEmail,
       created_by_name: currentUserName,
     });
     setBusy(false);
-    setCustomAmount("");
-    setFlash(`${selectedChild.name}に ${type === "give" ? "+" : "-"}${formatYen(amount)} きろくしました`);
+    if (error) {
+      setErrorMessage("保存に失敗しました。もう一度お試しください。");
+      return;
+    }
+    setFlash(`${selectedChild.name}に ${type === "give" ? "+" : "-"}${formatYen(amountNumber)} きろくしました`);
+    setAmountText("");
+    setPurposeText("");
     router.refresh();
   }
 
   async function handleSheetSubmit(payload: QuickAddPayload) {
     setBusy(true);
+    setErrorMessage(null);
     const supabase = createClient();
 
-    if (editing) {
-      await supabase
-        .from("allowance_transactions")
-        .update({
+    const { error } = editing
+      ? await supabase
+          .from("allowance_transactions")
+          .update({
+            child_id: payload.childId,
+            amount: payload.amount,
+            category: payload.category,
+            purpose: payload.purpose,
+            occurred_on: payload.occurredOn,
+          })
+          .eq("id", editing.id)
+      : await supabase.from("allowance_transactions").insert({
           child_id: payload.childId,
           amount: payload.amount,
           category: payload.category,
           purpose: payload.purpose,
           occurred_on: payload.occurredOn,
-        })
-        .eq("id", editing.id);
-    } else {
-      await supabase.from("allowance_transactions").insert({
-        child_id: payload.childId,
-        amount: payload.amount,
-        category: payload.category,
-        purpose: payload.purpose,
-        occurred_on: payload.occurredOn,
-        created_by_email: currentUserEmail,
-        created_by_name: currentUserName,
-      });
-    }
+          created_by_email: currentUserEmail,
+          created_by_name: currentUserName,
+        });
 
     setBusy(false);
+    if (error) {
+      setErrorMessage("保存に失敗しました。もう一度お試しください。");
+      return;
+    }
     setSheetOpen(false);
     setEditing(null);
     router.refresh();
@@ -117,7 +149,11 @@ export default function Dashboard({
   async function handleDelete(id: string) {
     if (!confirm("このきろくを削除しますか？")) return;
     const supabase = createClient();
-    await supabase.from("allowance_transactions").delete().eq("id", id);
+    const { error } = await supabase.from("allowance_transactions").delete().eq("id", id);
+    if (error) {
+      setErrorMessage("削除に失敗しました。もう一度お試しください。");
+      return;
+    }
     router.refresh();
   }
 
@@ -157,6 +193,11 @@ export default function Dashboard({
               ✓ {flash}
             </div>
           )}
+          {errorMessage && (
+            <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-center text-sm font-bold text-red-600">
+              {errorMessage}
+            </div>
+          )}
 
           <div className="mb-3 flex gap-2">
             <button
@@ -177,16 +218,15 @@ export default function Dashboard({
             </button>
           </div>
 
+          <p className="mb-2 text-xs font-bold text-ink/40">金額（タップすると足されます）</p>
           <div className="grid grid-cols-4 gap-2">
             {QUICK_AMOUNTS.map((amount) => (
               <button
                 key={amount}
-                disabled={busy}
-                onClick={() => quickSave(amount)}
-                className="rounded-xl border-2 border-primary-soft bg-primary-soft py-3 text-sm font-800 text-primary transition active:scale-95 disabled:opacity-50"
+                onClick={() => setAmountText(String((Number(amountText) || 0) + amount))}
+                className="rounded-xl border-2 border-primary-soft bg-primary-soft py-3 text-sm font-800 text-primary transition active:scale-95"
               >
-                {type === "give" ? "+" : "-"}
-                {amount.toLocaleString("ja-JP")}
+                +{amount.toLocaleString("ja-JP")}
               </button>
             ))}
           </div>
@@ -197,19 +237,36 @@ export default function Dashboard({
               inputMode="numeric"
               min="1"
               step="1"
-              value={customAmount}
-              onChange={(e) => setCustomAmount(e.target.value.replace(/[^0-9]/g, ""))}
+              value={amountText}
+              onChange={(e) => setAmountText(e.target.value.replace(/[^0-9]/g, ""))}
               placeholder="金額を入力（1円単位でOK）"
               className="w-full rounded-xl border-2 border-ink/10 bg-cream px-4 py-2 text-base outline-none focus:border-primary"
             />
-            <button
-              disabled={busy || !customAmount}
-              onClick={() => quickSave(Number(customAmount))}
-              className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white transition active:scale-95 disabled:opacity-50"
-            >
-              追加
-            </button>
+            {amountText !== "" && (
+              <button
+                onClick={() => setAmountText("")}
+                className="shrink-0 rounded-xl border-2 border-ink/10 px-3 py-2 text-xs font-bold text-ink/50"
+              >
+                クリア
+              </button>
+            )}
           </div>
+
+          <input
+            type="text"
+            value={purposeText}
+            onChange={(e) => setPurposeText(e.target.value)}
+            placeholder="目的・メモ（任意）例：おこづかい"
+            className="mt-2 w-full rounded-xl border-2 border-ink/10 bg-cream px-4 py-2 text-base outline-none focus:border-primary"
+          />
+
+          <button
+            disabled={busy || !canQuickSave}
+            onClick={confirmSave}
+            className="mt-3 w-full rounded-xl bg-primary py-3 text-base font-bold text-white shadow-md shadow-primary/30 transition active:scale-95 disabled:opacity-50"
+          >
+            {busy ? "保存中…" : "きろくする"}
+          </button>
 
           <button
             onClick={() => {
