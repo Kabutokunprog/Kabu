@@ -1,0 +1,9 @@
+.claude/settings.local.json
+
+# Node / Next.js (kids-allowance)
+node_modules/
+.next/
+.env.local
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
