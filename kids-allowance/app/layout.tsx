@@ -12,12 +12,18 @@ const rounded = M_PLUS_Rounded_1c({
 export const metadata: Metadata = {
   title: "おこづかいちょう",
   description: "咲太朗と芽依のおこづかい記録帳",
+  appleWebApp: {
+    capable: true,
+    title: "おこづかい",
+    statusBarStyle: "default",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  themeColor: "#FF8FA3",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

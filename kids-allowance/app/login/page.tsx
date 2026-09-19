@@ -30,7 +30,7 @@ export default function LoginPage() {
     <main className="flex min-h-screen flex-col items-center justify-center px-6 py-12">
       <div className="w-full max-w-sm rounded-xl2 bg-white p-8 shadow-lg shadow-primary/10">
         <div className="mb-8 text-center">
-          <div className="text-5xl">🐷</div>
+          <div className="text-5xl">🐶</div>
           <h1 className="mt-2 text-2xl font-800">おこづかいちょう</h1>
           <p className="mt-1 text-sm text-ink/60">かぞくの おこづかい きろく</p>
         </div>

@@ -8,7 +8,7 @@ export default async function ConfirmPage({
   return (
     <main className="flex min-h-screen flex-col items-center justify-center px-6 py-12">
       <div className="w-full max-w-sm rounded-xl2 bg-white p-8 text-center shadow-lg shadow-primary/10">
-        <div className="text-5xl">🐷</div>
+        <div className="text-5xl">🐶</div>
         {confirmation_url ? (
           <>
             <h1 className="mt-3 text-lg font-800">もう少しです！</h1>

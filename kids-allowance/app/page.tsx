@@ -42,7 +42,7 @@ export default async function DashboardPage() {
     <main className="mx-auto max-w-lg px-4 pb-16 pt-6">
       <header className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-800">🐷 おこづかいちょう</h1>
+          <h1 className="text-xl font-800">🐶 おこづかいちょう</h1>
           <p className="text-xs text-ink/50">
             {member.display_name} さん（{member.role === "editor" ? "記録できます" : "見るだけ"}）としてログイン中
           </p>
