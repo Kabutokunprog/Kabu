@@ -152,9 +152,11 @@ export default function QuickAddSheet({
         <input
           type="number"
           inputMode="numeric"
+          min="1"
+          step="1"
           value={amountText}
-          onChange={(e) => setAmountText(e.target.value)}
-          placeholder="金額を入力（円）"
+          onChange={(e) => setAmountText(e.target.value.replace(/[^0-9]/g, ""))}
+          placeholder={type === "return" ? "金額を入力（1円単位でOK）" : "金額を入力（円）"}
           className="mb-4 w-full rounded-xl border-2 border-ink/10 bg-cream px-4 py-3 text-base outline-none focus:border-primary"
         />
 
