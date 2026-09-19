@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Child, Transaction } from "@/lib/types";
 
-const QUICK_AMOUNTS = [100, 500, 1000, 3000, 5000, 10000];
+const QUICK_AMOUNTS = [100, 500, 1000, 10000];
 const GIVE_CATEGORIES = ["お小遣い", "お手伝い", "お年玉", "ご褒美", "その他"];
 const RETURN_CATEGORIES = ["返却", "お小遣い", "その他"];
 
@@ -133,32 +133,40 @@ export default function QuickAddSheet({
           </button>
         </div>
 
-        <p className="mb-2 text-xs font-bold text-ink/40">金額</p>
-        <div className="mb-2 grid grid-cols-3 gap-2">
+        <p className="mb-2 text-xs font-bold text-ink/40">金額（タップすると足されます）</p>
+        <div className="mb-2 grid grid-cols-4 gap-2">
           {QUICK_AMOUNTS.map((amount) => (
             <button
               key={amount}
-              onClick={() => setAmountText(String(amount))}
-              className={`rounded-xl border-2 py-2 text-sm font-bold transition ${
-                amountText === String(amount)
-                  ? "border-primary bg-primary-soft text-primary"
-                  : "border-ink/10 text-ink/60"
-              }`}
+              onClick={() =>
+                setAmountText(String((Number(amountText) || 0) + amount))
+              }
+              className="rounded-xl border-2 border-primary-soft bg-primary-soft py-2 text-sm font-800 text-primary transition active:scale-95"
             >
-              ¥{amount.toLocaleString("ja-JP")}
+              +{amount.toLocaleString("ja-JP")}
             </button>
           ))}
         </div>
-        <input
-          type="number"
-          inputMode="numeric"
-          min="1"
-          step="1"
-          value={amountText}
-          onChange={(e) => setAmountText(e.target.value.replace(/[^0-9]/g, ""))}
-          placeholder={type === "return" ? "金額を入力（1円単位でOK）" : "金額を入力（円）"}
-          className="mb-4 w-full rounded-xl border-2 border-ink/10 bg-cream px-4 py-3 text-base outline-none focus:border-primary"
-        />
+        <div className="mb-4 flex items-center gap-2">
+          <input
+            type="number"
+            inputMode="numeric"
+            min="1"
+            step="1"
+            value={amountText}
+            onChange={(e) => setAmountText(e.target.value.replace(/[^0-9]/g, ""))}
+            placeholder={type === "return" ? "金額を入力（1円単位でOK）" : "金額を入力（円）"}
+            className="w-full rounded-xl border-2 border-ink/10 bg-cream px-4 py-3 text-base outline-none focus:border-primary"
+          />
+          {amountText !== "" && (
+            <button
+              onClick={() => setAmountText("")}
+              className="shrink-0 rounded-xl border-2 border-ink/10 px-3 py-3 text-xs font-bold text-ink/50"
+            >
+              クリア
+            </button>
+          )}
+        </div>
 
         <p className="mb-2 text-xs font-bold text-ink/40">項目</p>
         <div className="mb-4 flex flex-wrap gap-2">

@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentMember } from "@/lib/member";
 import type { Child, Transaction } from "@/lib/types";
+import Link from "next/link";
 import ChildTabs from "@/components/ChildTabs";
+import ChildPicker from "@/components/ChildPicker";
 import SummaryCards from "@/components/SummaryCards";
 import MonthlyTable from "@/components/MonthlyTable";
 import TransactionBoard from "@/components/TransactionBoard";
@@ -35,12 +37,16 @@ export default async function DashboardPage({
     redirect("/auth/no-access");
   }
 
-  const selectedChildId =
+  const requestedChildId =
     resolvedSearchParams.child && children.some((c) => c.id === resolvedSearchParams.child)
       ? resolvedSearchParams.child
-      : member.child_id && children.some((c) => c.id === member.child_id)
-        ? member.child_id
-        : children[0].id;
+      : null;
+
+  if (!requestedChildId) {
+    return <ChildPicker children={children} displayName={member.display_name} />;
+  }
+
+  const selectedChildId = requestedChildId;
 
   const selectedChild = children.find((c) => c.id === selectedChildId)!;
 
@@ -57,7 +63,9 @@ export default async function DashboardPage({
     <main className="mx-auto max-w-lg px-4 pb-32 pt-6">
       <header className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-800">🐷 おこづかいちょう</h1>
+          <Link href="/" className="text-xl font-800">
+            🐷 おこづかいちょう
+          </Link>
           <p className="text-xs text-ink/50">
             {member.display_name} さん（{member.role === "editor" ? "記録できます" : "見るだけ"}）としてログイン中
           </p>
