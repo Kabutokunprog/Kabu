@@ -179,7 +179,7 @@ export default function Dashboard({
       </div>
 
       <div className="mt-5">
-        <SummaryCards transactions={childTransactions} />
+        <SummaryCards transactions={childTransactions} childId={selectedChildId} />
       </div>
 
       {isEditor && (
@@ -277,7 +277,7 @@ export default function Dashboard({
       )}
 
       <div className="mt-6">
-        <MonthlyTable transactions={childTransactions} />
+        <MonthlyTable transactions={childTransactions} childId={selectedChildId} />
       </div>
 
       <div className="mt-6">

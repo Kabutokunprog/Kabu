@@ -40,3 +40,9 @@ export function groupByMonth(transactions: Transaction[]): { key: string; totals
 export function formatYen(amount: number) {
   return `¥${amount.toLocaleString("ja-JP")}`;
 }
+
+export function shiftMonth(key: string, delta: number) {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
