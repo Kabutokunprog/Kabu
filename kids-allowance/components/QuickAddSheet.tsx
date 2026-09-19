@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { Child, Transaction } from "@/lib/types";
 
 const QUICK_AMOUNTS = [100, 500, 1000, 10000];
-const GIVE_CATEGORIES = ["お小遣い", "お手伝い", "お年玉", "ご褒美", "その他"];
+const GIVE_CATEGORIES = ["お小遣い", "お手伝い", "お年玉", "ご褒美", "Visaカード", "その他"];
 const RETURN_CATEGORIES = ["返却", "お小遣い", "その他"];
 
 export type QuickAddPayload = {
@@ -19,6 +19,10 @@ function todayStr() {
   const d = new Date();
   const tz = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
   return tz.toISOString().slice(0, 10);
+}
+
+function monthStr() {
+  return todayStr().slice(0, 7);
 }
 
 export default function QuickAddSheet({
@@ -45,6 +49,7 @@ export default function QuickAddSheet({
   const [purpose, setPurpose] = useState("");
   const [occurredOn, setOccurredOn] = useState(todayStr());
   const [showDate, setShowDate] = useState(false);
+  const [monthValue, setMonthValue] = useState(monthStr());
 
   useEffect(() => {
     if (!open) return;
@@ -55,6 +60,7 @@ export default function QuickAddSheet({
       setCategory(editingTransaction.category);
       setPurpose(editingTransaction.purpose ?? "");
       setOccurredOn(editingTransaction.occurred_on);
+      setMonthValue(editingTransaction.occurred_on.slice(0, 7));
       setShowDate(true);
     } else {
       setChildId(child.id);
@@ -63,6 +69,7 @@ export default function QuickAddSheet({
       setCategory("お小遣い");
       setPurpose("");
       setOccurredOn(todayStr());
+      setMonthValue(monthStr());
       setShowDate(false);
     }
   }, [open, editingTransaction, child.id]);
@@ -70,8 +77,9 @@ export default function QuickAddSheet({
   if (!open) return null;
 
   const categories = type === "give" ? GIVE_CATEGORIES : RETURN_CATEGORIES;
+  const isCardMode = category === "Visaカード";
   const amountNumber = Number(amountText);
-  const canSubmit = amountNumber > 0 && Number.isFinite(amountNumber);
+  const canSubmit = amountNumber > 0 && Number.isFinite(amountNumber) && (!isCardMode || monthValue !== "");
 
   function handleSubmit() {
     if (!canSubmit) return;
@@ -80,7 +88,7 @@ export default function QuickAddSheet({
       amount: type === "give" ? amountNumber : -amountNumber,
       category,
       purpose: purpose.trim() || null,
-      occurredOn,
+      occurredOn: isCardMode ? `${monthValue}-01` : occurredOn,
     });
   }
 
@@ -170,17 +178,26 @@ export default function QuickAddSheet({
 
         <p className="mb-2 text-xs font-bold text-ink/40">項目</p>
         <div className="mb-4 flex flex-wrap gap-2">
-          {categories.map((c) => (
-            <button
-              key={c}
-              onClick={() => setCategory(c)}
-              className={`rounded-full border-2 px-3 py-1.5 text-sm font-bold transition ${
-                category === c ? "border-secondary bg-secondary-soft text-secondary" : "border-ink/10 text-ink/50"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
+          {categories.map((c) => {
+            const isVisa = c === "Visaカード";
+            return (
+              <button
+                key={c}
+                onClick={() => setCategory(c)}
+                className={`rounded-full border-2 px-3 py-1.5 text-sm font-bold transition ${
+                  category === c
+                    ? isVisa
+                      ? "border-[#1A1F71] bg-[#1A1F71] text-white"
+                      : "border-secondary bg-secondary-soft text-secondary"
+                    : isVisa
+                      ? "border-[#1A1F71]/40 text-[#1A1F71]"
+                      : "border-ink/10 text-ink/50"
+                }`}
+              >
+                {isVisa ? "💳 Visa" : c}
+              </button>
+            );
+          })}
         </div>
 
         <p className="mb-2 text-xs font-bold text-ink/40">目的・メモ（任意）</p>
@@ -192,7 +209,20 @@ export default function QuickAddSheet({
           className="mb-4 w-full rounded-xl border-2 border-ink/10 bg-cream px-4 py-3 text-base outline-none focus:border-primary"
         />
 
-        {showDate ? (
+        {isCardMode ? (
+          <div className="mb-4 rounded-xl2 bg-secondary-soft p-4">
+            <p className="mb-2 text-xs font-bold text-secondary">💳 何月分の明細？</p>
+            <input
+              type="month"
+              value={monthValue}
+              onChange={(e) => setMonthValue(e.target.value)}
+              className="w-full rounded-xl border-2 border-ink/10 bg-white px-4 py-3 text-base outline-none focus:border-secondary"
+            />
+            <p className="mt-2 text-[11px] text-ink/50">
+              カード明細をまとめて、その月の記録として登録します。日付は自動でその月の1日になります。
+            </p>
+          </div>
+        ) : showDate ? (
           <div className="mb-4">
             <p className="mb-2 text-xs font-bold text-ink/40">日付</p>
             <input
