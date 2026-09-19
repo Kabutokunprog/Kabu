@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import type { Child, Transaction } from "@/lib/types";
 
-const QUICK_AMOUNTS = [100, 500, 1000, 10000];
 const GIVE_CATEGORIES = ["お小遣い", "お手伝い", "お年玉", "ご褒美", "Visaカード", "その他"];
 const RETURN_CATEGORIES = ["返却", "お小遣い", "その他"];
 
@@ -141,20 +140,7 @@ export default function QuickAddSheet({
           </button>
         </div>
 
-        <p className="mb-2 text-xs font-bold text-ink/40">金額（タップすると足されます）</p>
-        <div className="mb-2 grid grid-cols-4 gap-2">
-          {QUICK_AMOUNTS.map((amount) => (
-            <button
-              key={amount}
-              onClick={() =>
-                setAmountText(String((Number(amountText) || 0) + amount))
-              }
-              className="rounded-xl border-2 border-primary-soft bg-primary-soft py-2 text-sm font-800 text-primary transition active:scale-95"
-            >
-              +{amount.toLocaleString("ja-JP")}
-            </button>
-          ))}
-        </div>
+        <p className="mb-2 text-xs font-bold text-ink/40">金額</p>
         <div className="mb-4 flex items-center gap-2">
           <input
             type="number"
