@@ -5,7 +5,6 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "おこづかいちょう",
     short_name: "おこづかい",
     description: "咲太朗と芽依のおこづかい記録帳",
-    start_url: "/",
     display: "standalone",
     background_color: "#FFF8EF",
     theme_color: "#FF8FA3",
