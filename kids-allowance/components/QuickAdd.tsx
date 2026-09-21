@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { Child } from "@/lib/types";
@@ -14,23 +15,75 @@ function todayStr() {
   return tz.toISOString().slice(0, 10);
 }
 
-export default function QuickAdd({
-  children,
-  defaultChildId,
-  currentUserName,
-  currentUserEmail,
-}: {
-  children: Child[];
-  defaultChildId: string;
-  currentUserName: string;
-  currentUserEmail: string;
-}) {
-  const [childId, setChildId] = useState(defaultChildId);
+export default function QuickAdd() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [kids, setKids] = useState<Child[]>([]);
+  const [currentUserName, setCurrentUserName] = useState("");
+  const [currentUserEmail, setCurrentUserEmail] = useState("");
+
+  const [childId, setChildId] = useState("");
   const [type, setType] = useState<"give" | "return">("give");
   const [amountText, setAmountText] = useState("");
+  const [purposeText, setPurposeText] = useState("");
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const email = session?.user?.email;
+
+      if (!email) {
+        router.replace("/login");
+        return;
+      }
+
+      const [{ data: memberData }, { data: childrenData }] = await Promise.all([
+        supabase.from("allowance_members").select("display_name, role, child_id").eq("email", email).maybeSingle(),
+        supabase
+          .from("allowance_children")
+          .select("id, name, emoji, color, sort_order")
+          .order("sort_order", { ascending: true }),
+      ]);
+
+      if (!active) return;
+
+      if (!memberData) {
+        router.replace("/auth/no-access");
+        return;
+      }
+      if (memberData.role !== "editor") {
+        router.replace("/");
+        return;
+      }
+
+      const list = (childrenData ?? []) as Child[];
+      if (list.length === 0) {
+        router.replace("/auth/no-access");
+        return;
+      }
+
+      setKids(list);
+      setChildId(
+        memberData.child_id && list.some((c) => c.id === memberData.child_id) ? memberData.child_id : list[0].id
+      );
+      setCurrentUserName(memberData.display_name);
+      setCurrentUserEmail(email);
+      setLoading(false);
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [router]);
 
   useEffect(() => {
     if (!flash) return;
@@ -38,7 +91,7 @@ export default function QuickAdd({
     return () => clearTimeout(timer);
   }, [flash]);
 
-  const selectedChild = children.find((c) => c.id === childId) ?? children[0];
+  const selectedChild = kids.find((c) => c.id === childId) ?? kids[0];
   const amountNumber = Number(amountText);
   const canSave = amountNumber > 0 && Number.isFinite(amountNumber);
 
@@ -51,7 +104,7 @@ export default function QuickAdd({
       child_id: childId,
       amount: type === "give" ? amountNumber : -amountNumber,
       category: type === "give" ? "お小遣い" : "返却",
-      purpose: null,
+      purpose: purposeText.trim() || null,
       occurred_on: todayStr(),
       created_by_email: currentUserEmail,
       created_by_name: currentUserName,
@@ -63,15 +116,25 @@ export default function QuickAdd({
     }
     setFlash(`${selectedChild.name}に ${type === "give" ? "+" : "-"}${formatYen(amountNumber)} きろくしました`);
     setAmountText("");
+    setPurposeText("");
+  }
+
+  if (loading) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center px-4 py-6">
+        <p className="text-3xl">🐶</p>
+        <p className="mt-2 text-sm text-ink/40">よみこみ中…</p>
+      </main>
+    );
   }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4 py-6">
       <h1 className="mb-5 text-center text-lg font-800">🐶 クイック記録</h1>
 
-      {children.length > 1 && (
+      {kids.length > 1 && (
         <div className="mb-4 flex gap-2">
-          {children.map((c) => (
+          {kids.map((c) => (
             <button
               key={c.id}
               onClick={() => setChildId(c.id)}
@@ -151,6 +214,14 @@ export default function QuickAdd({
           </button>
         )}
       </div>
+
+      <input
+        type="text"
+        value={purposeText}
+        onChange={(e) => setPurposeText(e.target.value)}
+        placeholder="目的・メモ（任意）例：おこづかい"
+        className="mt-2 w-full rounded-xl border-2 border-ink/10 bg-cream px-4 py-3 text-base outline-none focus:border-primary"
+      />
 
       <button
         disabled={busy || !canSave}
