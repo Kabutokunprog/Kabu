@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { Child, Role, Transaction } from "@/lib/types";
 import { formatYen } from "@/lib/aggregate";
@@ -264,15 +265,20 @@ export default function Dashboard({
             {busy ? "保存中…" : "きろくする"}
           </button>
 
-          <button
-            onClick={() => {
-              setEditing(null);
-              setSheetOpen(true);
-            }}
-            className="mt-3 text-xs font-bold text-secondary underline underline-offset-2"
-          >
-            くわしく記録する（項目・メモ・Visaカードなど）
-          </button>
+          <div className="mt-3 flex items-center justify-between">
+            <button
+              onClick={() => {
+                setEditing(null);
+                setSheetOpen(true);
+              }}
+              className="text-xs font-bold text-secondary underline underline-offset-2"
+            >
+              くわしく記録する（項目・メモ・Visaカードなど）
+            </button>
+            <Link href="/quick" className="text-xs font-bold text-primary underline underline-offset-2">
+              クイック記録へ →
+            </Link>
+          </div>
         </div>
       )}
 

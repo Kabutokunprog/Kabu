@@ -35,23 +35,36 @@ export default function QuickAdd() {
 
     async function load() {
       const supabase = createClient();
+
+      // ログイン直後はCookieの反映に一瞬のズレが出ることがあるため、
+      // getUser()でサーバーに問い合わせて確実な認証状態を取得する
       const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const email = session?.user?.email;
+        data: { user },
+      } = await supabase.auth.getUser();
+      const email = user?.email;
 
       if (!email) {
         router.replace("/login");
         return;
       }
 
-      const [{ data: memberData }, { data: childrenData }] = await Promise.all([
-        supabase.from("allowance_members").select("display_name, role, child_id").eq("email", email).maybeSingle(),
-        supabase
-          .from("allowance_children")
-          .select("id, name, emoji, color, sort_order")
-          .order("sort_order", { ascending: true }),
-      ]);
+      // 同じ理由で、メンバー情報の取得も数回までリトライしてから
+      // 「未登録」と判断する(ログイン直後の一回だけ空で返ってくることがある)
+      let memberData: { display_name: string; role: string; child_id: string | null } | null = null;
+      let childrenData: Child[] | null = null;
+      for (let attempt = 0; attempt < 3 && active; attempt++) {
+        const [memberRes, childrenRes] = await Promise.all([
+          supabase.from("allowance_members").select("display_name, role, child_id").eq("email", email).maybeSingle(),
+          supabase
+            .from("allowance_children")
+            .select("id, name, emoji, color, sort_order")
+            .order("sort_order", { ascending: true }),
+        ]);
+        memberData = memberRes.data;
+        childrenData = (childrenRes.data ?? []) as Child[];
+        if (memberData) break;
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
 
       if (!active) return;
 
@@ -64,7 +77,7 @@ export default function QuickAdd() {
         return;
       }
 
-      const list = (childrenData ?? []) as Child[];
+      const list = childrenData ?? [];
       if (list.length === 0) {
         router.replace("/auth/no-access");
         return;
