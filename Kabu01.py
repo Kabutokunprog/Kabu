@@ -3,7 +3,10 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 
+from tenbagger import bp as tenbagger_bp
+
 app = Flask(__name__)
+app.register_blueprint(tenbagger_bp)
 
 # ★5/29時点の実際の資産額順に厳密にソートした配列（結合バグを防ぐためTupleのListで定義）
 ORDERED_ASSETS = [
@@ -216,6 +219,10 @@ def index():
         </style>
     </head>
     <body>
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+            <a href="/" style="padding:6px 12px; border-radius:4px; text-decoration:none; font-size:13px; font-weight:bold; background:#2563eb; color:#fff;">📊 戦略司令室</a>
+            <a href="/tenbagger" style="padding:6px 12px; border-radius:4px; text-decoration:none; font-size:13px; font-weight:bold; background:#e2e8f0; color:#334155;">🚀 テンバガー候補</a>
+        </div>
         <h3>🧠 戦略司令室 V7.5：完全資産連動モデル</h3>
         
         <div class="control-panel">
