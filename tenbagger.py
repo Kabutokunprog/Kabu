@@ -393,6 +393,9 @@ HTML = """
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>テンバガー候補</title>
+<link rel="apple-touch-icon" href="/static/icons/tenbagger-180.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/static/icons/tenbagger-512.png">
+<meta name="apple-mobile-web-app-title" content="10x候補">
 <style>
   body { font-family: -apple-system, sans-serif; margin: 0; padding: 10px; background: #f4f6f9; color: #333; }
   .nav { display: flex; gap: 6px; margin-bottom: 8px; }

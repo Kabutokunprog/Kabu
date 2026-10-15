@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="62%" r="75%">
+      <stop offset="0" stop-color="#7c2d12"/><stop offset="0.55" stop-color="#3b0d0d"/><stop offset="1" stop-color="#1a0606"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#fde68a" stop-opacity="0.95"/><stop offset="1" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wood" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a16207"/><stop offset="1" stop-color="#713f12"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fef3c7"/><stop offset="0.45" stop-color="#fbbf24"/><stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <ellipse cx="256" cy="300" rx="210" ry="130" fill="url(#glow)"/>
+  <!-- 宝箱 -->
+  <path d="M110 300 Q110 236 256 236 Q402 236 402 300 Z" fill="url(#wood)" stroke="#fbbf24" stroke-width="8"/>
+  <rect x="110" y="300" width="292" height="140" rx="10" fill="url(#wood)" stroke="#fbbf24" stroke-width="8"/>
+  <rect x="110" y="300" width="292" height="22" fill="#fbbf24"/>
+  <rect x="236" y="300" width="40" height="140" fill="#fbbf24"/>
+  <rect x="242" y="318" width="28" height="36" rx="5" fill="#78350f"/>
+  <circle cx="256" cy="332" r="6" fill="#fbbf24"/>
+  <!-- 金貨 -->
+  <g stroke="#92400e" stroke-width="4">
+    <ellipse cx="160" cy="292" rx="30" ry="14" fill="url(#gold)"/>
+    <ellipse cx="200" cy="280" rx="30" ry="14" fill="url(#gold)"/>
+    <ellipse cx="318" cy="282" rx="30" ry="14" fill="url(#gold)"/>
+    <ellipse cx="356" cy="294" rx="30" ry="14" fill="url(#gold)"/>
+  </g>
+  <!-- きらめき -->
+  <g fill="#fffbeb">
+    <path d="M86 210 l8 -24 l8 24 l24 8 l-24 8 l-8 24 l-8 -24 l-24 -8 z"/>
+    <path d="M420 196 l6 -18 l6 18 l18 6 l-18 6 l-6 18 l-6 -18 l-18 -6 z"/>
+    <path d="M436 420 l5 -14 l5 14 l14 5 l-14 5 l-5 14 l-5 -14 l-14 -5 z"/>
+  </g>
+  <!-- 10x -->
+  <text x="256" y="196" text-anchor="middle" font-family="Arial Black, Arial, Helvetica, sans-serif" font-weight="900" font-size="190" fill="url(#gold)" stroke="#451a03" stroke-width="12" paint-order="stroke" letter-spacing="-6">10x</text>
+</svg>

@@ -189,6 +189,9 @@ def index():
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>戦略司令室 V7.5</title>
+        <link rel="apple-touch-icon" href="/static/icons/senryaku-180.png">
+        <link rel="icon" type="image/png" sizes="512x512" href="/static/icons/senryaku-512.png">
+        <meta name="apple-mobile-web-app-title" content="戦略司令室">
         <style>
             body { font-family: -apple-system, sans-serif; margin: 0; padding: 10px; background: #f4f6f9; color: #333; }
             h3 { margin: 10px 0; font-size: 16px; color: #1e293b; }
