@@ -250,6 +250,29 @@ def _fmt(v, digits=1, suffix="", sign=False):
     return s + suffix
 
 
+COPY_COLUMNS = [
+    ("本日", "day_chg", 1, "%", True), ("高値から", "from_high", 1, "%", False),
+    ("2年上昇", "ret_2y", 0, "%", True), ("時価総額(億)", "cap_oku", 0, "", False),
+    ("PER", "per", 1, "", False), ("PBR", "pbr", 2, "", False), ("PEG", "peg", 2, "", False),
+    ("営業利益率", "op_margin", 1, "%", False), ("増収率", "rev_growth", 1, "%", True),
+    ("増益率", "earn_growth", 1, "%", True), ("経営陣保有", "insider", 1, "%", False),
+]
+
+
+def to_copy_text(rows, updated):
+    """Claude などに貼り付けて共有するためのタブ区切りテキスト"""
+    head = ["順位", "銘柄", "コード", "スコア", "点数の内訳", "シグナル", "テーマ", "株価"] + [c[0] for c in COPY_COLUMNS]
+    lines = [f"テンバガー候補ランキング（データ取得: {updated} JST）", "\t".join(head)]
+    for i, r in enumerate(rows, 1):
+        cells = [str(i), r["name"], r["code"], str(r["score"]),
+                 " ".join(f"{l}{p:+d}" for l, p, _ in r["breakdown"]) or "-",
+                 " ".join(sig for sig, _ in r["signals"]) or "-",
+                 r["theme"], _fmt(r["price"], 0)]
+        cells += [_fmt(r[k], d, suf, sign) for _, k, d, suf, sign in COPY_COLUMNS]
+        lines.append("\t".join(cells))
+    return "\n".join(lines)
+
+
 @bp.route("/tenbagger")
 def tenbagger():
     extra_str = request.args.get("tickers", "")
@@ -264,7 +287,8 @@ def tenbagger():
     rows = collect(extra)
     jst = timezone(timedelta(hours=9))
     updated = datetime.fromtimestamp(_cache["time"], jst).strftime("%Y/%m/%d %H:%M")
-    return render_template_string(HTML, rows=rows, rules=RULES, fmt=_fmt, extra_str=extra_str, updated=updated)
+    return render_template_string(HTML, rows=rows, rules=RULES, fmt=_fmt, extra_str=extra_str, updated=updated,
+                                  copy_text=to_copy_text(rows, updated))
 
 
 HTML = """
@@ -307,6 +331,7 @@ HTML = """
   .pt-plus { background: #eff6ff; color: #1e40af; }
   .pt-minus { background: #fef2f2; color: #b91c1c; }
   .formula { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 11px; white-space: pre-wrap; }
+  .copy-area { width: 100%; box-sizing: border-box; height: 120px; font-size: 10px; font-family: monospace; border: 1px solid #ccc; padding: 5px; white-space: pre; overflow: auto; }
   .docs table { white-space: normal; font-size: 11px; }
   .docs { background: #fff; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; line-height: 1.6; color: #334155; margin-bottom: 15px; }
   .docs h4 { margin-top: 0; font-size: 14px; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 10px; }
@@ -329,6 +354,10 @@ HTML = """
       <button type="submit" onclick="try{localStorage.setItem('kabu_tb_tickers', document.getElementById('tickerInput').value.trim())}catch(e){}">追加・更新</button>
       <button type="button" class="btn-clear" onclick="try{localStorage.removeItem('kabu_tb_tickers')}catch(e){}; window.location.href='/tenbagger';">クリア</button>
     </form>
+    <div style="margin-top:8px;">
+      <button type="button" onclick="copyTable()">📋 表を丸ごとコピー（Claude共有用）</button>
+      <span id="copyMsg" style="font-size:12px; color:#15803d; margin-left:6px;"></span>
+    </div>
     <div class="filters">
       <label><input type="checkbox" id="fCap" onchange="applyFilter()"> 時価総額1,000億円以下だけ</label>
       <label><input type="checkbox" id="fSig" onchange="applyFilter()"> シグナルありだけ</label>
@@ -387,6 +416,11 @@ HTML = """
   </div>
 
   <div class="docs">
+    <h4>📋 共有用テキスト（ボタンが使えないときは、ここを全選択してコピー）</h4>
+    <textarea id="copyArea" class="copy-area" readonly onclick="this.select()">{{ copy_text }}</textarea>
+  </div>
+
+  <div class="docs">
     <h4>🧮 スコアの計算式</h4>
     <div class="formula">スコア ＝ 下の表の各項目で「当てはまった点数」を合計（0〜100点に収める）
 ・各項目は上の行から順に判定し、最初に当てはまった1つだけを採用
@@ -428,6 +462,22 @@ PEG         ＝ PER ÷ 増益率（%）   … 1以下なら「成長のわりに
       window.location.href = "/tenbagger?tickers=" + encodeURIComponent(saved);
     }
   });
+
+  function copyTable() {
+    var area = document.getElementById("copyArea");
+    var msg = document.getElementById("copyMsg");
+    function done() { msg.textContent = "✅ コピーしました。Claudeのチャットに貼り付けてください"; }
+    function fallback() {
+      area.select();
+      try { document.execCommand("copy"); done(); }
+      catch (e) { msg.textContent = "コピーできませんでした。ページ下の共有用テキストを全選択してコピーしてください"; }
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(area.value).then(done, fallback);
+    } else {
+      fallback();
+    }
+  }
 
   function applyFilter() {
     var cap = document.getElementById("fCap").checked;
