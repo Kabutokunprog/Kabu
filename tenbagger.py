@@ -61,6 +61,87 @@ UNIVERSE = [
     ("5132.T", "pluszero", "AI"),
 ]
 
+# 事業内容と注目点（2026年10月時点のWeb情報をもとに作成。業績の数字は決算短信で要確認）
+# {コード: (何をしている会社か, 注目点・注意点)}
+PROFILES = {
+    "6668": ("半導体製造装置（エッチング・成膜）に組み込む高周波電源・整合器のメーカー。装置内でプラズマを安定させる心臓部の部品。",
+             "26年8月期の営業利益は+42%。27年8月期は約2倍（53億円）の予想。7月の上方修正ではストップ高。"),
+    "3891": ("アルミ電解コンデンサ用のセパレータ（電気を通さない特殊な紙）で世界トップ級のシェア。",
+             "AIサーバー向けの需要が好調で、営業利益予想を44億→60億円に上方修正（8月）。"),
+    "4187": ("アクリル酸エステルなどの化学品メーカー。半導体のレジスト（回路を描く感光材）向け材料、ディスプレイ材料、化粧品原料を手がける。",
+             "上期の営業利益+51%。通期の営業利益予想を75億円に上方修正し、増配も発表。"),
+    "6627": ("半導体のウエハテスト（完成前の半導体チップの検査）の受託会社。台湾の半導体後工程大手・力成科技（PTI）のグループ。",
+             "経常利益+84%の予想。10月1日に1株→5株の株式分割を実施。表示のPER・PEGは分割前の利益で計算されている可能性があり、実際より割安に見えている恐れ。"),
+    "4406": ("油脂化学（オレオケミカル）、可塑剤、樹脂添加剤、水素化の受託などを手がける化学メーカー。",
+             "第1四半期の利益が約4倍、通期の経常利益予想を8億→17億円に上方修正。PBR0.4倍と超割安。ただしAI・半導体との直接の関係は確認できず。"),
+    "4055": ("半導体工場（キオクシアなど）向けのシステム開発・運用と、AI（画像認識など）の開発を行うIT企業。",
+             "半導体関連の売上が+24.5%。メモリ（SSD）需要の回復の恩恵を受ける立場。"),
+    "6871": ("半導体の検査に使うプローブカード（チップに針を当てて電気検査する部品）の大手。特にメモリ向けに強い。",
+             "AI向けメモリ（HBM）の需要で、26年12月期の営業利益は+87%（314億円）の予想。会社は優秀だが時価総額が大きく、10倍は難しい。"),
+    "6266": ("半導体・ディスプレイの製造装置（塗布装置、貼り合わせ装置など）とウエハ搬送ロボットのメーカー。",
+             "直近は減収。受注の回復待ちの段階。"),
+    "6235": ("スマホのカメラやセンサーのレンズに光学薄膜をつける成膜装置のメーカー。",
+             "中国向けの売上が大きく、景気や規制の影響を受けやすい。直近は減益。"),
+    "6315": ("半導体の樹脂封止（チップを樹脂で包んで保護する工程）装置で世界トップ。",
+             "AI向けメモリ（HBM）用の封止装置が成長の柱。増収+100%と好調。"),
+    "6323": ("半導体ウエハの搬送ロボット・搬送装置で世界大手。",
+             "営業利益率30%と高収益。時価総額が約7,800億円と大きめ。"),
+    "6855": ("半導体の検査に使うプローブカードのメーカー。",
+             "第1四半期の経常利益+127%。通期の経常利益予想を73億→93億円に上方修正（8月）。"),
+    "6264": ("半導体・ディスプレイ製造装置向けの真空部品や電極の精密加工。子会社KMACで半導体材料用の超高純度アルミも手がける。",
+             "半導体装置向けの受注が急拡大し、26年8月期は2度の上方修正。"),
+    "6337": ("半導体の検査工程で使うハンドラ（チップを運んで良品・不良品に仕分ける装置）とテスタ（検査装置）のメーカー。",
+             "AI需要でハンドラの受注が増加。27年3月期の経常利益予想を5.9億→13億円に上方修正（7月）。時価総額200億円前後と小さい。"),
+    "6387": ("化合物半導体・パワー半導体向けのエッチング装置・成膜装置のメーカー（京都）。",
+             "営業利益率34%と高収益だが、売上の伸びは鈍い。"),
+    "6338": ("SiC（次世代パワー半導体材料）を切断するワイヤーソーや、ウエハの貼り付け装置のメーカー。",
+             "SiC市場の不振で大幅な減収減益。PBR1倍割れだが回復待ち。"),
+    "6254": ("半導体工場で使う超純水の製造装置のメーカー。",
+             "工場建設のタイミングで売上が大きく変動。直近は減収減益。"),
+    "6656": ("プリント基板や半導体パッケージの外観検査装置のメーカー。",
+             "赤字が続いており、注意が必要。"),
+    "6227": ("半導体パッケージにはんだボールを載せる装置や、インクジェット装置のメーカー。",
+             "2年で約7倍に上昇済み。直近は減収減益。"),
+    "6890": ("半導体製造装置向けの真空シール、石英・セラミックス部品、シリコンウエハなどを幅広く手がける。",
+             "増収+165%と急伸。中国での事業が大きい点はリスク。"),
+    "3445": ("使用済みのテスト用ウエハを再生する事業で世界トップ。中国子会社で新品のウエハも製造。",
+             "売上の伸びは鈍化。中国事業の比率が高い。"),
+    "4369": ("半導体の成膜に使う高純度の化学材料（High-k材料など）のメーカー。",
+             "営業利益率25%と高収益。直近は減益。"),
+    "4975": ("プリント基板・半導体パッケージ向けのめっき薬品のメーカー。",
+             "営業利益率36%と非常に高収益だが、成長はゆるやか。"),
+    "6787": ("プリント基板のメーカー。自動車向けが中心で、AIサーバー・通信向けを拡大中。",
+             "増収+38%だが利益の伸びは小さい。高値から−50%超。"),
+    "3110": ("ガラス繊維のメーカー。AIサーバーの基板に使う特殊なガラスクロスで高いシェア。",
+             "AIサーバー向けで成長。高値から−54%と大きく下落。時価総額は5,000億円超と大きめ。"),
+    "6966": ("EV（電気自動車）用モーターコアと、半導体部品のリードフレームのメーカー。精密金型に強み。",
+             "売上の約7割がEV向けのモーターコアで、半導体・AIの比率は小さい。"),
+    "6834": ("光ファイバーの接続部品（光コネクタ関連）と光ディスク用金型のメーカー。",
+             "データセンターの光通信向けで急成長。2年で約9倍に上昇済み。"),
+    "3321": ("電子部品・半導体の商社（名古屋）。自動車向けが中心。",
+             "PBR1倍割れだが、商社のため営業利益率は2%台と低い。"),
+    "7537": ("半導体・電子部品の独立系商社。",
+             "PBR1倍割れだが、営業利益率は3%台と低い。"),
+    "3778": ("データセンター・クラウドの運営。政府認定のGPUクラウド（AI計算用）を提供。",
+             "増収+49%。GPU投資の負担で利益は不安定。"),
+    "3776": ("都市型データセンターの運営。",
+             "直近は減収。利益率が低い。"),
+    "5026": ("画像認識AIやAIを使ったシステム開発を行う会社。",
+             "時価総額約50億円と非常に小さいが、直近は減収。"),
+    "3993": ("東大・松尾研究室系のAI企業。コールセンター向けAIやチャットボットなどのAIソフトを提供。",
+             "増収+81%と好調。"),
+    "4180": ("台湾発のAIマーケティング（広告・顧客分析）のソフト会社。",
+             "増収+25%、増益が続く。2年で−23%と株価は出遅れ。"),
+    "5574": ("企業のAI導入支援と、AI基盤「ABEJA Platform」の開発・運用。現場で使うAI（Physical AI）に注力。",
+             "第3四半期までの営業利益+42%。通期予想を上方修正。PERが55倍と割高。"),
+    "4011": ("マイクロソフト系の生成AIを使った企業向けAIシステムの開発。",
+             "増収+133%と急伸だが、利益率は6%台と低い。"),
+    "4488": ("AI-OCR（手書き書類の読み取りAI）「DX Suite」が主力。生成AIの基盤開発にも注力。",
+             "27年3月期の営業利益は+69%の予想。2年で−41%と株価は低迷。"),
+    "5132": ("「第4世代AI」と呼ぶ独自AI（AEI）を使ったAI開発・コンサルティング。",
+             "通期の売上+30%・経常利益+43%の予想。業績は伸びているが、株価は上場後長く低迷（高値から−60%）。PER46倍と割高。"),
+}
+
 CACHE_SECONDS = 600
 _cache = {"time": 0.0, "key": None, "data": None}
 
@@ -102,6 +183,10 @@ def _price_history(tickers):
     return out
 
 
+PEG_GROWTH_CAP = 100   # PEG 計算に使う増益率の上限（%）。前年が小さすぎる反動の異常値対策
+PEG_MAX_PER = 40       # これより PER が高い株は PEG の加点なし
+SPIKE_GROWTH = 200     # 増益率がこれを超えたら「一時的な急増?」の目印を出す
+
 # 採点ルール: (項目名, 指標キー, [(条件, 点数, 説明), ...]) を上から順に判定し、最初に当てはまったものを採用
 RULES = [
     ("小型", "cap_oku", [
@@ -126,8 +211,8 @@ RULES = [
         (lambda v: v < 0, -10, "営業赤字"),
     ]),
     ("PEG", "peg", [
-        (lambda v: v <= 0.5, 15, "PEG 0.5以下"),
-        (lambda v: v <= 1.0, 10, "PEG 1以下"),
+        (lambda v: v <= 0.5, 15, "PEG 0.5以下（PER40倍以下のときだけ）"),
+        (lambda v: v <= 1.0, 10, "PEG 1以下（PER40倍以下のときだけ）"),
     ]),
     ("PBR", "pbr", [
         (lambda v: v <= 1.0, 10, "PBR 1倍以下"),
@@ -153,6 +238,9 @@ def score_stock(m):
         v = m[key]
         if np.isnan(v):
             continue
+        # PEG は PER が 40倍を超える割高株には加点しない
+        if key == "peg" and not (m["per"] <= PEG_MAX_PER):
+            continue
         # 押し目は「売上が伸びている（または不明）」ときだけ加点（業績悪化による下落を除く）
         if key == "from_high" and not (np.isnan(m["rev_growth"]) or m["rev_growth"] > 0):
             continue
@@ -168,6 +256,8 @@ def score_stock(m):
         signals.append(("🔴PBR1倍割れ", "sig-red"))
     if any(l == "押し目" for l, _, _ in breakdown):
         signals.append(("🟡高値から急落", "sig-yellow"))
+    if not np.isnan(m["earn_growth"]) and m["earn_growth"] > SPIKE_GROWTH:
+        signals.append(("⚠️増益率が異常に大きい", "sig-gray"))
     if not np.isnan(m["ret_2y"]):
         if m["ret_2y"] <= 50:
             signals.append(("🟢まだ上がっていない", "sig-green"))
@@ -218,7 +308,7 @@ def collect(extra_tickers):
         if np.isnan(per) or per <= 0:
             per = _num(info.get("trailingPE"))
         earn_growth = _num(info.get("earningsGrowth")) * 100
-        peg = per / earn_growth if per > 0 and earn_growth > 0 else np.nan
+        peg = per / min(earn_growth, PEG_GROWTH_CAP) if per > 0 and earn_growth > 0 else np.nan
 
         m = {
             "price": price,
@@ -287,7 +377,8 @@ def tenbagger():
     rows = collect(extra)
     jst = timezone(timedelta(hours=9))
     updated = datetime.fromtimestamp(_cache["time"], jst).strftime("%Y/%m/%d %H:%M")
-    return render_template_string(HTML, rows=rows, rules=RULES, fmt=_fmt, extra_str=extra_str, updated=updated,
+    return render_template_string(HTML, rows=rows, rules=RULES, fmt=_fmt, profiles=PROFILES,
+                                  peg_max_per=PEG_MAX_PER, peg_cap=PEG_GROWTH_CAP, spike=SPIKE_GROWTH, extra_str=extra_str, updated=updated,
                                   copy_text=to_copy_text(rows, updated))
 
 
@@ -332,6 +423,9 @@ HTML = """
   .pt-minus { background: #fef2f2; color: #b91c1c; }
   .formula { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 11px; white-space: pre-wrap; }
   .copy-area { width: 100%; box-sizing: border-box; height: 120px; font-size: 10px; font-family: monospace; border: 1px solid #ccc; padding: 5px; white-space: pre; overflow: auto; }
+  .profile { border-bottom: 1px solid #e2e8f0; padding: 8px 0; }
+  .profile-head { font-weight: bold; margin-bottom: 4px; color: #0f172a; }
+  .profile-head a { font-weight: normal; font-size: 11px; margin-left: 6px; }
   .docs table { white-space: normal; font-size: 11px; }
   .docs { background: #fff; padding: 15px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 12px; line-height: 1.6; color: #334155; margin-bottom: 15px; }
   .docs h4 { margin-top: 0; font-size: 14px; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 10px; }
@@ -416,6 +510,24 @@ HTML = """
   </div>
 
   <div class="docs">
+    <h4>🏢 上位10社の事業内容と注目点</h4>
+    {% for r in rows[:10] %}
+    <div class="profile">
+      <div class="profile-head">{{ loop.index }}位　{{ r['name'] }} <span class="code">{{ r['code'] }}</span>　<strong>{{ r['score'] }}点</strong>
+        <a href="https://kabutan.jp/stock/?code={{ r['code'] }}" target="_blank" rel="noopener">株探で見る ↗</a></div>
+      {% set p = profiles.get(r['code']) %}
+      {% if p %}
+      <div><strong>何をしている会社か：</strong>{{ p[0] }}</div>
+      <div><strong>注目点・注意点：</strong>{{ p[1] }}</div>
+      {% else %}
+      <div>（追加した銘柄のため解説なし。「株探で見る」から確認してください）</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <p style="font-size:11px; color:#64748b;">※解説は2026年10月時点のWeb情報をもとに作成しています。最新の業績は決算短信でご確認ください。</p>
+  </div>
+
+  <div class="docs">
     <h4>📋 共有用テキスト（ボタンが使えないときは、ここを全選択してコピー）</h4>
     <textarea id="copyArea" class="copy-area" readonly onclick="this.select()">{{ copy_text }}</textarea>
   </div>
@@ -425,7 +537,10 @@ HTML = """
     <div class="formula">スコア ＝ 下の表の各項目で「当てはまった点数」を合計（0〜100点に収める）
 ・各項目は上の行から順に判定し、最初に当てはまった1つだけを採用
 ・データがない項目（表で「-」）は0点扱い（加点も減点もしない）
-・「押し目」は、売上が伸びている（またはデータなし）ときだけ加点 ＝ 業績悪化で下がった株は除外</div>
+・「押し目」は、売上が伸びている（またはデータなし）ときだけ加点 ＝ 業績悪化で下がった株は除外
+・「PEG」は、PERが{{ peg_max_per }}倍以下のときだけ加点 ＝ そもそも割高な株は除外
+・PEGの計算に使う増益率は最大{{ peg_cap }}%まで ＝ 前年の利益が小さすぎた反動の異常値で満点にならないように
+・増益率が{{ spike }}%を超えたら「⚠️増益率が異常に大きい」の目印（前年が小さかった反動の可能性）</div>
     <table>
       <thead><tr><th>項目</th><th>条件</th><th>点数</th></tr></thead>
       <tbody>
@@ -443,7 +558,7 @@ HTML = """
 時価総額    ＝ 株価 × 発行済株式数（億円）
 PER         ＝ 株価 ÷ 予想1株利益（予想がなければ実績）
 PBR         ＝ 株価 ÷ 1株あたり純資産
-PEG         ＝ PER ÷ 増益率（%）   … 1以下なら「成長のわりに安い」
+PEG         ＝ PER ÷ 増益率（%、最大100%）   … 1以下なら「成長のわりに安い」
 営業利益率  ＝ 営業利益 ÷ 売上高 × 100（直近1年）
 増収率      ＝ 直近四半期の売上 ÷ 前年同期の売上 − 1
 増益率      ＝ 直近四半期の利益 ÷ 前年同期の利益 − 1
