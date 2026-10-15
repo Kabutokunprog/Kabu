@@ -186,6 +186,7 @@ def _price_history(tickers):
 PEG_GROWTH_CAP = 100   # PEG 計算に使う増益率の上限（%）。前年が小さすぎる反動の異常値対策
 PEG_MAX_PER = 40       # これより PER が高い株は PEG の加点なし
 SPIKE_GROWTH = 200     # 増益率がこれを超えたら「一時的な急増?」の目印を出す
+DIP_MIN_RET_2Y = 50    # 押し目の加点は、2年でこれ以上（%）上がっている上昇トレンドの株だけ
 
 # 採点ルール: (項目名, 指標キー, [(条件, 点数, 説明), ...]) を上から順に判定し、最初に当てはまったものを採用
 RULES = [
@@ -223,7 +224,7 @@ RULES = [
         (lambda v: v >= 300, -10, "2年で4倍超"),
     ]),
     ("押し目", "from_high", [
-        (lambda v: v <= -20, 10, "高値から20%以上下落"),
+        (lambda v: v <= -20, 10, "高値から20%以上下落（2年で+50%以上の上昇株のみ）"),
     ]),
     ("オーナー", "insider", [
         (lambda v: v >= 20, 5, "経営陣保有20%以上"),
@@ -243,6 +244,9 @@ def score_stock(m):
             continue
         # 押し目は「売上が伸びている（または不明）」ときだけ加点（業績悪化による下落を除く）
         if key == "from_high" and not (np.isnan(m["rev_growth"]) or m["rev_growth"] > 0):
+            continue
+        # 押し目は上昇トレンドの株の一時的な下げだけ（ずっと低迷している株は除く）
+        if key == "from_high" and not (m["ret_2y"] >= DIP_MIN_RET_2Y):
             continue
         for cond, pts, desc in conds:
             if cond(v):
@@ -378,7 +382,7 @@ def tenbagger():
     jst = timezone(timedelta(hours=9))
     updated = datetime.fromtimestamp(_cache["time"], jst).strftime("%Y/%m/%d %H:%M")
     return render_template_string(HTML, rows=rows, rules=RULES, fmt=_fmt, profiles=PROFILES,
-                                  peg_max_per=PEG_MAX_PER, peg_cap=PEG_GROWTH_CAP, spike=SPIKE_GROWTH, extra_str=extra_str, updated=updated,
+                                  peg_max_per=PEG_MAX_PER, dip_min=DIP_MIN_RET_2Y, peg_cap=PEG_GROWTH_CAP, spike=SPIKE_GROWTH, extra_str=extra_str, updated=updated,
                                   copy_text=to_copy_text(rows, updated))
 
 
@@ -538,6 +542,7 @@ HTML = """
 ・各項目は上の行から順に判定し、最初に当てはまった1つだけを採用
 ・データがない項目（表で「-」）は0点扱い（加点も減点もしない）
 ・「押し目」は、売上が伸びている（またはデータなし）ときだけ加点 ＝ 業績悪化で下がった株は除外
+・「押し目」は、2年で+{{ dip_min }}%以上上がっている株だけ加点 ＝ ずっと低迷している株は除外（上昇中の株が一時的に下がった場面だけを拾う）
 ・「PEG」は、PERが{{ peg_max_per }}倍以下のときだけ加点 ＝ そもそも割高な株は除外
 ・PEGの計算に使う増益率は最大{{ peg_cap }}%まで ＝ 前年の利益が小さすぎた反動の異常値で満点にならないように
 ・増益率が{{ spike }}%を超えたら「⚠️増益率が異常に大きい」の目印（前年が小さかった反動の可能性）</div>
@@ -549,7 +554,7 @@ HTML = """
       {% endfor %}{% endfor %}
       </tbody>
     </table>
-    <p>満点の目安：小型20＋増収15＋増益10＋利益率15＋PEG15＋PBR10＋出遅れ10＋押し目10＋オーナー5 ＝ 110点（上限100点）。60点以上を緑、25点以下を赤で表示。</p>
+    <p>満点の目安：小型20＋増収15＋増益10＋利益率15＋PEG15＋PBR10＋（出遅れ10 または 押し目10）＋オーナー5 ＝ 100点。出遅れ（2年+50%以下）と押し目（2年+50%以上）は同時には付かない。60点以上を緑、25点以下を赤で表示。</p>
 
     <h4>📐 各指標の計算式</h4>
     <div class="formula">本日        ＝ (現在の株価 ÷ 前日の終値 − 1) × 100
