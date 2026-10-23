@@ -1,0 +1,23 @@
+name: HadanoAlarm build
+
+on:
+  push:
+    paths:
+      - "HadanoAlarm/**"
+      - ".github/workflows/hadano-alarm.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: HadanoAlarm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Xcode version
+        run: xcodebuild -version
+      - name: Trip logic tests
+        run: swiftc HadanoAlarm/TripLogic.swift Tests/TripLogicTests.swift -o "$RUNNER_TEMP/tripTests" && "$RUNNER_TEMP/tripTests"
+      - name: Build app for simulator
+        run: xcodebuild -project HadanoAlarm.xcodeproj -target HadanoAlarm -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
