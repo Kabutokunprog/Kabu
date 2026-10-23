@@ -3,7 +3,7 @@ import Foundation
 // 乗り過ごし判定のテスト。電車の動きをまねた位置データを流し込んで、
 // 期待どおりのタイミングで知らせが出るかを確かめる。
 // 実行方法（Mac のターミナル）:
-//   swiftc HadanoAlarm/TripLogic.swift Tests/TripLogicTests.swift -o /tmp/tripTests && /tmp/tripTests
+//   swiftc HadanoAlarm/TripLogic.swift Tests/main.swift -o /tmp/tripTests && /tmp/tripTests
 
 var failures = 0
 

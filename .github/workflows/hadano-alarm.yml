@@ -18,6 +18,7 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
       - name: Trip logic tests
-        run: swiftc HadanoAlarm/TripLogic.swift Tests/TripLogicTests.swift -o "$RUNNER_TEMP/tripTests" && "$RUNNER_TEMP/tripTests"
+        run: swiftc HadanoAlarm/TripLogic.swift Tests/main.swift -o "$RUNNER_TEMP/tripTests" && "$RUNNER_TEMP/tripTests"
       - name: Build app for simulator
+        if: always()
         run: xcodebuild -project HadanoAlarm.xcodeproj -target HadanoAlarm -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build

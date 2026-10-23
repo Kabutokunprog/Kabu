@@ -99,6 +99,6 @@
 | `HadanoAlarm/ParentNotifier.swift` | 保護者への通知（ntfy.sh） |
 | `HadanoAlarm/AppSettings.swift` | 曜日・時間帯などの設定 |
 | `HadanoAlarm/ContentView.swift` | 画面 |
-| `Tests/TripLogicTests.swift` | 判定のテスト：`swiftc HadanoAlarm/TripLogic.swift Tests/TripLogicTests.swift -o /tmp/t && /tmp/t` |
+| `Tests/main.swift` | 判定のテスト：`swiftc HadanoAlarm/TripLogic.swift Tests/main.swift -o /tmp/t && /tmp/t` |
 
 距離や秒数を変えたいときは `TripLogic.swift` の `TripRules`、振動のリズムや長さは `Alarmer.swift` の `AlarmKind` を変えます。
