@@ -24,9 +24,10 @@
 ## Mac での準備（最初の1回だけ）
 
 ### 1. ファイルを Mac に持ってくる
-1. GitHub でこのリポジトリを開き、ブランチを **`claude/hadano-alarm`** に切り替えます。
-2. 緑の「Code」ボタン →「Download ZIP」でダウンロードし、ダブルクリックで開きます。
-3. 中の **`HadanoAlarm`** フォルダを、デスクトップなど好きな場所に置きます。
+1. Mac のブラウザ（Safari など）で GitHub にログインした状態で、次のアドレスを開きます。ZIP ファイルのダウンロードが始まります。
+   `https://github.com/Kabutokunprog/Kabu/archive/refs/heads/claude/hadano-alarm.zip`
+2. 「ダウンロード」フォルダにできた ZIP をダブルクリックして開きます。
+3. 開いたフォルダの中の **`HadanoAlarm`** フォルダを、デスクトップなど好きな場所に置きます。
 
 ### 2. Xcode で開く
 1. App Store から **Xcode**（無料）を入れておきます（最新版にしてください）。
