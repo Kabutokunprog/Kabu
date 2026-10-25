@@ -6,12 +6,12 @@ enum AlarmKind {
     case stage(Int)
     case overshoot
 
-    var title: String {
+    func title(station: String) -> String {
         switch self {
-        case .stage(1): return "もうすぐ秦野（あと約3分）"
-        case .stage(2): return "次は秦野！降りる準備を"
-        case .stage(_): return "秦野に着きます！降りて！"
-        case .overshoot: return "秦野を過ぎました！次の駅で降りて戻ろう"
+        case .stage(1): return "もうすぐ\(station)（あと約3分）"
+        case .stage(2): return "次は\(station)！降りる準備を"
+        case .stage(_): return "\(station)に着きます！降りて！"
+        case .overshoot: return "\(station)を過ぎました！次の駅で降りて戻ろう"
         }
     }
 
@@ -79,8 +79,8 @@ final class Alarmer: ObservableObject {
         }
     }
 
-    func vibrate(_ kind: AlarmKind) {
-        DispatchQueue.main.async { self.start(kind) }
+    func vibrate(_ kind: AlarmKind, station: String) {
+        DispatchQueue.main.async { self.start(kind, station: station) }
     }
 
     func stopCurrent() {
@@ -93,7 +93,7 @@ final class Alarmer: ObservableObject {
         }
     }
 
-    private func start(_ kind: AlarmKind) {
+    private func start(_ kind: AlarmKind, station: String) {
         // 前のバイブが続いていたら止めてから次を始める
         timer?.invalidate()
         pattern = kind.pattern
@@ -108,7 +108,7 @@ final class Alarmer: ObservableObject {
         timer = t
         tick()
 
-        postNotification(kind)
+        postNotification(kind, station: station)
         EventLog.add("\(kind.logName)を始めました")
     }
 
@@ -123,9 +123,9 @@ final class Alarmer: ObservableObject {
         step += 1
     }
 
-    private func postNotification(_ kind: AlarmKind) {
+    private func postNotification(_ kind: AlarmKind, station: String) {
         let content = UNMutableNotificationContent()
-        content.title = kind.title
+        content.title = kind.title(station: station)
         content.body = "「止める」で振動を止められます。"
         content.categoryIdentifier = Self.notificationCategory
         // 無音のファイルを指定：音は鳴らないが、通知としての振動は出る

@@ -16,6 +16,11 @@ final class AppSettings: ObservableObject {
     @Published var childName: String { didSet { defaults.set(childName, forKey: "childName") } }
     /// 秦野で降りたときも保護者に知らせるか
     @Published var notifyArrival: Bool { didSet { defaults.set(notifyArrival, forKey: "notifyArrival") } }
+    /// 秦野以外の駅を使うか（特別なとき用）
+    @Published var useCustomStation: Bool { didSet { defaults.set(useCustomStation, forKey: "useCustomStation") } }
+    /// 秦野以外の駅の名前と位置
+    @Published private(set) var customStationName: String
+    @Published private(set) var customStation: GeoPoint?
     /// 保護者のスマホの ntfy アプリで登録する「トピック名」（合言葉のようなもの）
     let ntfyTopic: String
 
@@ -27,6 +32,7 @@ final class AppSettings: ObservableObject {
             "weekdays": [2, 3, 4, 5, 6],
             "childName": "娘",
             "notifyArrival": true,
+            "useCustomStation": false,
         ])
         enabled = defaults.bool(forKey: "enabled")
         startMinutes = defaults.integer(forKey: "startMinutes")
@@ -34,6 +40,12 @@ final class AppSettings: ObservableObject {
         weekdays = Set((defaults.array(forKey: "weekdays") as? [Int]) ?? [2, 3, 4, 5, 6])
         childName = defaults.string(forKey: "childName") ?? "娘"
         notifyArrival = defaults.bool(forKey: "notifyArrival")
+        useCustomStation = defaults.bool(forKey: "useCustomStation")
+        customStationName = defaults.string(forKey: "customStationName") ?? ""
+        if defaults.object(forKey: "customLatitude") != nil {
+            customStation = GeoPoint(latitude: defaults.double(forKey: "customLatitude"),
+                                     longitude: defaults.double(forKey: "customLongitude"))
+        }
 
         if let saved = defaults.string(forKey: "ntfyTopic") {
             ntfyTopic = saved
@@ -43,6 +55,22 @@ final class AppSettings: ObservableObject {
             ntfyTopic = "hadano-\(random)"
             defaults.set(ntfyTopic, forKey: "ntfyTopic")
         }
+    }
+
+    /// いま見守る駅。ほかの駅が未設定なら秦野。
+    var destination: Destination {
+        if useCustomStation, let point = customStation, !customStationName.isEmpty {
+            return .custom(name: customStationName, point: point)
+        }
+        return .hadano
+    }
+
+    func setCustomStation(name: String, point: GeoPoint) {
+        customStationName = name
+        customStation = point
+        defaults.set(name, forKey: "customStationName")
+        defaults.set(point.latitude, forKey: "customLatitude")
+        defaults.set(point.longitude, forKey: "customLongitude")
     }
 
     func isInTimeWindow(_ date: Date) -> Bool {

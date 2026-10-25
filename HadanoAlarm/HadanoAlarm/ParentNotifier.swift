@@ -9,9 +9,9 @@ final class ParentNotifier {
     private let maxAttempts = 4
     private let retryDelay: TimeInterval = 10
 
-    func sendOvershoot(at point: GeoPoint?) {
+    func sendOvershoot(station: String, at point: GeoPoint?) {
         let name = AppSettings.shared.childName
-        var message = "\(name)が秦野駅を乗り過ごしたようです。電話して起こしてあげてください。"
+        var message = "\(name)が\(station)駅を乗り過ごしたようです。電話して起こしてあげてください。"
         var mapURL: URL?
         if let p = point {
             mapURL = URL(string: "https://maps.apple.com/?q=\(p.latitude),\(p.longitude)")
@@ -20,9 +20,9 @@ final class ParentNotifier {
         send(title: "乗り過ごし注意", message: message, priority: 5, tags: ["rotating_light"], click: mapURL)
     }
 
-    func sendArrived() {
+    func sendArrived(station: String) {
         let name = AppSettings.shared.childName
-        send(title: "秦野に着きました", message: "\(name)が秦野駅で降りました。", priority: 3, tags: ["white_check_mark"], click: nil)
+        send(title: "\(station)に着きました", message: "\(name)が\(station)駅で降りました。", priority: 3, tags: ["white_check_mark"], click: nil)
     }
 
     func sendTest() {

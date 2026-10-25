@@ -25,6 +25,7 @@ struct ContentView: View {
                     }
                 }
                 statusSection
+                stationSection
                 permissionSection
                 timeSection
                 parentSection
@@ -48,8 +49,8 @@ struct ContentView: View {
             Toggle("見守りをする", isOn: $settings.enabled)
             if monitor.isTracking {
                 Label {
-                    if let d = monitor.distanceToHadano {
-                        Text("見守り中：秦野まで \(String(format: "%.1f", d / 1000)) km")
+                    if let d = monitor.distanceToDestination {
+                        Text("見守り中：\(monitor.trackingName)まで \(String(format: "%.1f", d / 1000)) km")
                     } else {
                         Text("見守り中：位置を確認しています…")
                     }
@@ -62,7 +63,42 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
         } footer: {
-            Text("\(settings.weekdaysText)の \(AppSettings.timeText(settings.startMinutes))〜\(AppSettings.timeText(settings.endMinutes)) に伊勢原付近へ入ると自動で見守りを始め、東海大学前を過ぎてから秦野までに3回振動で知らせます（音は出ません）。")
+            Text("\(settings.weekdaysText)の \(AppSettings.timeText(settings.startMinutes))〜\(AppSettings.timeText(settings.endMinutes)) に\(settings.destination.startDescription)自動で見守りを始め、\(settings.destination.name)の約3分前・1分半前・50秒前に振動で知らせます（音は出ません）。")
+        }
+    }
+
+    // MARK: - 降りる駅
+
+    private var stationSection: some View {
+        Section {
+            Picker("降りる駅", selection: $settings.useCustomStation) {
+                Text("秦野（いつもの）").tag(false)
+                Text("ほかの駅").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: settings.useCustomStation) { _, _ in
+                monitor.destinationChanged()
+            }
+            if settings.useCustomStation {
+                NavigationLink {
+                    StationPickerView()
+                } label: {
+                    HStack {
+                        Text("駅を選ぶ")
+                        Spacer()
+                        Text(settings.customStation == nil ? "未設定" : "\(settings.customStationName)駅")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("降りる駅")
+        } footer: {
+            if settings.useCustomStation && settings.customStation == nil {
+                Text("駅を選ぶまでは秦野で見守ります。")
+            } else if settings.useCustomStation {
+                Text("ほかの駅では、駅の8km手前に入ったら見守りを始めます。8kmより内側から乗るときは「今すぐ見守りを始める」を使ってください。")
+            }
         }
     }
 
@@ -160,7 +196,7 @@ struct ContentView: View {
                 TextField("娘", text: $settings.childName)
                     .multilineTextAlignment(.trailing)
             }
-            Toggle("秦野で降りたときも知らせる", isOn: $settings.notifyArrival)
+            Toggle("駅で降りたときも知らせる", isOn: $settings.notifyArrival)
             VStack(alignment: .leading, spacing: 4) {
                 Text("トピック名（保護者の ntfy アプリに登録）")
                     .font(.caption).foregroundStyle(.secondary)
@@ -185,10 +221,10 @@ struct ContentView: View {
 
     private var testSection: some View {
         Section {
-            Button("1回目の振動を試す") { Alarmer.shared.vibrate(.stage(1)) }
-            Button("2回目の振動を試す") { Alarmer.shared.vibrate(.stage(2)) }
-            Button("3回目の振動を試す") { Alarmer.shared.vibrate(.stage(3)) }
-            Button("乗り過ごしの振動を試す") { Alarmer.shared.vibrate(.overshoot) }
+            Button("1回目の振動を試す") { Alarmer.shared.vibrate(.stage(1), station: settings.destination.name) }
+            Button("2回目の振動を試す") { Alarmer.shared.vibrate(.stage(2), station: settings.destination.name) }
+            Button("3回目の振動を試す") { Alarmer.shared.vibrate(.stage(3), station: settings.destination.name) }
+            Button("乗り過ごしの振動を試す") { Alarmer.shared.vibrate(.overshoot, station: settings.destination.name) }
             Button("今すぐ見守りを始める（時間外でも）") { monitor.startManually() }
                 .disabled(monitor.isTracking)
         } header: {

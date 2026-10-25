@@ -30,29 +30,29 @@ func distanceMeters(_ a: GeoPoint, _ b: GeoPoint) -> Double {
 enum TripEvent: Equatable {
     case stage(Int)      // 1〜3回目のアラーム
     case overshoot       // 乗り過ごし
-    case arrived         // 秦野で降りた
-    case wrongDirection  // 秦野から離れていく（東京方面へ向かっている）
+    case arrived         // 降りる駅で降りた
+    case wrongDirection  // 降りる駅から離れていく（反対方向へ向かっている）
     case timeout
 }
 
 struct TripRules {
-    /// 秦野駅までの距離がこれ以下になったら鳴らす（東海大学前は秦野から約4.1km）
+    /// 降りる駅までの距離がこれ以下になったら鳴らす（秦野の場合、東海大学前は約4.1km手前）
     var stageDistances: [Double] = [3500, 2000, 800]
     /// 位置が飛んで複数回分が一度に来たときの、鳴らす間隔の最小値
     var minSecondsBetweenStages: TimeInterval = 10
-    /// これだけ秦野に近づいたら「秦野へ向かっている」とみなす
+    /// これだけ近づいたら「降りる駅へ向かっている」とみなす
     var approachMargin: Double = 300
     /// 近づく前にこれだけ離れたら「反対方向」とみなす
     var wrongDirectionMargin: Double = 1000
-    /// 秦野駅にここまで近づいたら「駅を通った」とみなす
+    /// 降りる駅にここまで近づいたら「駅を通った」とみなす
     var nearStation: Double = 800
     /// 駅を通ったあと、さらにこれだけ離れたら乗り過ごしの疑い
     var overshootExtra: Double = 1500
     /// 乗り過ごしとみなす速さ（秒速10m = 時速36km。歩きや自転車と区別する）
     var overshootMinSpeed: Double = 10
-    /// 渋沢駅にここまで近づいたら乗り過ごし確定
-    var shibusawaRadius: Double = 700
-    /// 秦野駅のこの範囲に入ってから一定時間たてば「降りた」とみなす
+    /// 次の駅（秦野なら渋沢）にここまで近づいたら乗り過ごし確定
+    var nextStationRadius: Double = 700
+    /// 降りる駅のこの範囲に入ってから一定時間たてば「降りた」とみなす
     var arrivedRadius: Double = 500
     var arrivedAfter: TimeInterval = 6 * 60
     var maxTripDuration: TimeInterval = 60 * 60
@@ -61,6 +61,9 @@ struct TripRules {
 struct TripLogic {
     let rules: TripRules
     let startedAt: Date
+    let destination: GeoPoint
+    /// 降りる駅の次の駅（わかる場合だけ。乗り過ごしをより早く確実に見つけるため）
+    let nextStation: GeoPoint?
 
     private(set) var finished = false
     private(set) var firedStages = 0
@@ -74,8 +77,13 @@ struct TripLogic {
     private var reachedStationAt: Date?
     private var previous: (point: GeoPoint, at: Date)?
 
-    init(startedAt: Date, rules: TripRules = TripRules()) {
+    init(startedAt: Date,
+         destination: GeoPoint = Station.hadano,
+         nextStation: GeoPoint? = Station.shibusawa,
+         rules: TripRules = TripRules()) {
         self.startedAt = startedAt
+        self.destination = destination
+        self.nextStation = nextStation
         self.rules = rules
     }
 
@@ -83,7 +91,7 @@ struct TripLogic {
     mutating func update(point: GeoPoint, speed: Double?, at now: Date) -> [TripEvent] {
         guard !finished else { return [] }
 
-        let d = distanceMeters(point, Station.hadano)
+        let d = distanceMeters(point, destination)
         lastDistance = d
         farthest = max(farthest, d)
         closest = min(closest, d)
@@ -111,9 +119,9 @@ struct TripLogic {
         var events = fireNextStageIfReady(at: now)
 
         let passedStation = closest <= rules.nearStation
-        let nearShibusawa = distanceMeters(point, Station.shibusawa) <= rules.shibusawaRadius
+        let nearNextStation = nextStation.map { distanceMeters(point, $0) <= rules.nextStationRadius } ?? false
         let runningAway = passedStation && d >= closest + rules.overshootExtra && measuredSpeed >= rules.overshootMinSpeed
-        if (nearShibusawa && (passedStation || firedStages > 0)) || runningAway {
+        if (nearNextStation && (passedStation || firedStages > 0)) || runningAway {
             finished = true
             events.append(.overshoot)
             return events

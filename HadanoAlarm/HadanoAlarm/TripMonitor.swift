@@ -4,34 +4,25 @@ import UIKit
 
 /// 位置情報の見張り役。
 /// ふだんは iPhone の省エネな「場所の見張り（ジオフェンス）」だけを使い、
-/// 夕方の時間帯に伊勢原・鶴巻温泉付近へ入ったときだけ GPS を使い始める。
+/// 設定した時間帯に、降りる駅の手前の見張りエリアへ入ったときだけ GPS を使い始める。
 final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
     static let shared = TripMonitor()
 
     @Published private(set) var authorization: CLAuthorizationStatus = .notDetermined
     @Published private(set) var preciseLocation = true
     @Published private(set) var isTracking = false
-    @Published private(set) var distanceToHadano: Double?
+    @Published private(set) var distanceToDestination: Double?
+    /// 見守り中の駅の名前
+    @Published private(set) var trackingName = ""
 
     private let manager = CLLocationManager()
     private var trip: TripLogic?
+    private var tripDestination: Destination?
     private var backgroundSession: CLBackgroundActivitySession?
     private var tickTimer: Timer?
     private var pendingStop: DispatchWorkItem?
     private var lastPoint: GeoPoint?
     private var wantsAlways = false
-
-    private struct WatchArea {
-        let id: String
-        let name: String
-        let center: GeoPoint
-        let radius: Double
-    }
-
-    private let watchAreas = [
-        WatchArea(id: "isehara", name: "伊勢原駅", center: Station.isehara, radius: 1500),
-        WatchArea(id: "tsurumaki", name: "鶴巻温泉駅", center: Station.tsurumakiOnsen, radius: 1200),
-    ]
 
     func setup() {
         manager.delegate = self
@@ -67,6 +58,12 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
         startTrip(reason: "手動で開始")
     }
 
+    /// 降りる駅を変えたとき、見張りエリアを登録し直す
+    func destinationChanged() {
+        registerWatchAreas()
+        EventLog.add("降りる駅を「\(AppSettings.shared.destination.name)」にしました")
+    }
+
     func stopManually() {
         guard isTracking else { return }
         EventLog.add("手動で見守りを終了しました")
@@ -81,6 +78,7 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     private func registerWatchAreas() {
+        let watchAreas = AppSettings.shared.destination.watchAreas
         guard manager.authorizationStatus == .authorizedAlways else { return }
         guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else {
             EventLog.add("この iPhone では場所の見張りが使えません")
@@ -116,7 +114,10 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
         pendingStop?.cancel()
         pendingStop = nil
 
-        trip = TripLogic(startedAt: Date())
+        let destination = AppSettings.shared.destination
+        tripDestination = destination
+        trackingName = destination.name
+        trip = TripLogic(startedAt: Date(), destination: destination.point, nextStation: destination.nextStation)
         if backgroundSession == nil {
             backgroundSession = CLBackgroundActivitySession()
         }
@@ -129,7 +130,7 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
             self?.tick()
         }
         isTracking = true
-        EventLog.add("見守りを開始しました（\(reason)）")
+        EventLog.add("\(destination.name)までの見守りを開始しました（\(reason)）")
     }
 
     /// 判定は今すぐ終えるが、GPS は少し動かし続ける。
@@ -147,7 +148,7 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.manager.allowsBackgroundLocationUpdates = false
             self.backgroundSession?.invalidate()
             self.backgroundSession = nil
-            self.distanceToHadano = nil
+            self.distanceToDestination = nil
             EventLog.add("GPS を止めました")
         }
         pendingStop = work
@@ -162,23 +163,24 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     private func handle(_ events: [TripEvent]) {
+        let name = tripDestination?.name ?? AppSettings.shared.destination.name
         for event in events {
             switch event {
             case .stage(let n):
-                Alarmer.shared.vibrate(.stage(n))
+                Alarmer.shared.vibrate(.stage(n), station: name)
             case .overshoot:
                 EventLog.add("乗り過ごしを検知しました")
-                Alarmer.shared.vibrate(.overshoot)
-                ParentNotifier.shared.sendOvershoot(at: lastPoint)
+                Alarmer.shared.vibrate(.overshoot, station: name)
+                ParentNotifier.shared.sendOvershoot(station: name, at: lastPoint)
                 finishTrip(after: 60)
             case .arrived:
-                EventLog.add("秦野駅で降りたと判断しました")
+                EventLog.add("\(name)駅で降りたと判断しました")
                 if AppSettings.shared.notifyArrival {
-                    ParentNotifier.shared.sendArrived()
+                    ParentNotifier.shared.sendArrived(station: name)
                 }
                 finishTrip(after: 30)
             case .wrongDirection:
-                EventLog.add("秦野から離れる方向なので見守りを終了しました")
+                EventLog.add("\(name)から離れる方向なので見守りを終了しました")
                 finishTrip(after: 0)
             case .timeout:
                 EventLog.add("1時間たったので見守りを終了しました")
@@ -199,7 +201,7 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
-        let name = watchAreas.first { $0.id == region.identifier }?.name ?? region.identifier
+        let name = AppSettings.shared.destination.watchAreas.first { $0.id == region.identifier }?.name ?? region.identifier
         let settings = AppSettings.shared
         guard settings.enabled else {
             EventLog.add("\(name)付近に入りました（見守りがオフなので何もしません）")
@@ -217,7 +219,7 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
             guard location.horizontalAccuracy > 0, location.horizontalAccuracy <= 150 else { continue }
             let point = GeoPoint(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
             lastPoint = point
-            distanceToHadano = distanceMeters(point, Station.hadano)
+            distanceToDestination = distanceMeters(point, tripDestination?.point ?? AppSettings.shared.destination.point)
 
             guard var current = trip else { continue }
             let events = current.update(point: point, speed: location.speed >= 0 ? location.speed : nil, at: location.timestamp)

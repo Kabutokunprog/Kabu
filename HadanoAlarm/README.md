@@ -19,6 +19,14 @@
 - 曜日（初めは月〜金）と時間帯（初めは 17:00〜20:00）はアプリの画面で変えられます。
 - 東京方面へ向かうとき（秦野から離れていくとき）は何もせず、すぐ GPS を止めます。
 
+### 秦野以外の駅で使うとき（特別なとき用）
+アプリの「降りる駅」で「ほかの駅」を選び、「駅を選ぶ」から駅名で検索して決めます。
+
+- その駅の **8km 手前に入ったら**見守りを始め、3.5km・2km・800m 手前で振動します。
+- 次の駅がわからないので、乗り過ごしは「駅を通り過ぎて、電車の速さで 1.5km 離れた」ことで判断します。
+- 駅から 8km より内側で乗るときは、自動では始まりません。「今すぐ見守りを始める」を押してください。
+- 「秦野（いつもの）」に戻すと、元の設定に戻ります。
+
 ---
 
 ## Mac での準備（最初の1回だけ）
@@ -98,7 +106,9 @@
 | `HadanoAlarm/TripMonitor.swift` | 場所の見張り（ジオフェンス）と GPS の開始・停止 |
 | `HadanoAlarm/Alarmer.swift` | 振動のリズムと「止める」通知 |
 | `HadanoAlarm/ParentNotifier.swift` | 保護者への通知（ntfy.sh） |
-| `HadanoAlarm/AppSettings.swift` | 曜日・時間帯などの設定 |
+| `HadanoAlarm/AppSettings.swift` | 曜日・時間帯・降りる駅などの設定 |
+| `HadanoAlarm/Destination.swift` | 降りる駅ごとの見張りエリア（秦野は伊勢原・鶴巻温泉、ほかの駅は8km圏） |
+| `HadanoAlarm/StationPickerView.swift` | ほかの駅を検索して選ぶ画面 |
 | `HadanoAlarm/ContentView.swift` | 画面 |
 | `Tests/main.swift` | 判定のテスト：`swiftc HadanoAlarm/TripLogic.swift Tests/main.swift -o /tmp/t && /tmp/t` |
 

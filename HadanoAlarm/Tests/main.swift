@@ -63,11 +63,14 @@ struct Result {
     var events: [(TripEvent, Double)] = []  // (知らせ, そのときの秦野までの距離)
 }
 
-func run(_ samples: [Sample], drop: ((Sample) -> Bool)? = nil) -> Result {
-    var logic = TripLogic(startedAt: samples[0].at)
+func run(_ samples: [Sample],
+         destination: GeoPoint = Station.hadano,
+         nextStation: GeoPoint? = Station.shibusawa,
+         drop: ((Sample) -> Bool)? = nil) -> Result {
+    var logic = TripLogic(startedAt: samples[0].at, destination: destination, nextStation: nextStation)
     var result = Result()
     for s in samples {
-        let d = distanceMeters(s.point, Station.hadano)
+        let d = distanceMeters(s.point, destination)
         let events: [TripEvent]
         if let drop, drop(s) {
             events = logic.tick(at: s.at)
@@ -140,6 +143,27 @@ print("5. 伊勢原付近で長く止まったまま")
 do {
     let r = run(simulate([Leg(from: Station.isehara, to: Station.isehara, speed: 0, stopSeconds: 61 * 60)], every: 10))
     check(r.events.map { $0.0 } == [.timeout], "1時間で見守りをやめる（\(r.events.map { $0.0 })）")
+}
+
+print("6. ほかの駅（東海大学前）を設定して、乗り過ごす／降りる")
+do {
+    let toTokai: [Leg] = [
+        Leg(from: Station.isehara, to: Station.tokaiDaigakumae, speed: train, stopSeconds: 0),
+        Leg(from: Station.tokaiDaigakumae, to: Station.tokaiDaigakumae, speed: 0, stopSeconds: 40),
+    ]
+    let over = run(simulate(toTokai + [Leg(from: Station.tokaiDaigakumae, to: Station.hadano, speed: train, stopSeconds: 0)]),
+                   destination: Station.tokaiDaigakumae, nextStation: nil)
+    let overStages = over.events.compactMap { e, _ -> Int? in
+        if case .stage(let n) = e { return n } else { return nil }
+    }
+    check(overStages == [1, 2, 3], "3回知らせる（\(overStages)）")
+    check(over.events.contains { $0.0 == .overshoot }, "次の駅がわからなくても乗り過ごしに気づく")
+
+    let walk = GeoPoint(latitude: 35.3631, longitude: 139.2712)  // 東海大学前の南 約1.1km
+    let home = run(simulate(toTokai + [Leg(from: Station.tokaiDaigakumae, to: walk, speed: 1.2, stopSeconds: 0)]),
+                   destination: Station.tokaiDaigakumae, nextStation: nil)
+    check(home.events.contains { $0.0 == .arrived }, "降りたと判断する")
+    check(!home.events.contains { $0.0 == .overshoot }, "乗り過ごしとは言わない")
 }
 
 print(failures == 0 ? "\nすべて OK" : "\nNG が \(failures) 件あります")
