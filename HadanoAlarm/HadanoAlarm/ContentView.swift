@@ -47,6 +47,7 @@ struct ContentView: View {
     private var statusSection: some View {
         Section {
             Toggle("見守りをする", isOn: $settings.enabled)
+                .onChange(of: settings.enabled) { _, _ in monitor.ensureStandby() }
             if monitor.isTracking {
                 Label {
                     if let d = monitor.distanceToDestination {
@@ -58,9 +59,12 @@ struct ContentView: View {
                     Image(systemName: "location.fill").foregroundStyle(.green)
                 }
                 Button("見守りを終了する", role: .destructive) { monitor.stopManually() }
-            } else {
-                Label("待機中（GPS は使っていません）", systemImage: "moon.zzz")
+            } else if monitor.isStandingBy {
+                Label("待機中（省電力で位置を確認しています）", systemImage: "moon.zzz")
                     .foregroundStyle(.secondary)
+            } else {
+                Label("止まっています", systemImage: "pause.circle")
+                    .foregroundStyle(.orange)
             }
         } footer: {
             Text("\(settings.weekdaysText)の \(AppSettings.timeText(settings.startMinutes))〜\(AppSettings.timeText(settings.endMinutes)) に\(settings.destination.startDescription)自動で見守りを始め、\(settings.destination.name)の約3分前・1分半前・50秒前に振動で知らせます（音は出ません）。")
@@ -235,6 +239,8 @@ struct ContentView: View {
     }
 
     private func refresh() {
+        // アプリを開いたときに待機を始める（画面を閉じたあとも動き続けるようにするため）
+        monitor.ensureStandby()
         alarmer.requestNotificationPermission()
     }
 }

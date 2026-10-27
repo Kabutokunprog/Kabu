@@ -3,14 +3,21 @@ import CoreLocation
 import UIKit
 
 /// 位置情報の見張り役。
-/// ふだんは iPhone の省エネな「場所の見張り（ジオフェンス）」だけを使い、
-/// 設定した時間帯に、降りる駅の手前の見張りエリアへ入ったときだけ GPS を使い始める。
+///
+/// iPhone は、画面を閉じたアプリをすぐ眠らせる。GPS を「アプリを開いているときに」始めておくと
+/// 眠らせずにおいてくれるが、眠っている最中に GPS を始めても、すぐまた眠らされてしまう。
+/// そこで次の二段構えにする。
+/// 1. 待機：アプリを開いたときに、省電力（電波・Wi-Fi で大まかに）の位置確認を始めておく。
+///    これでアプリが眠らされず、時間帯に伊勢原付近へ入ったら GPS を細かくする。
+/// 2. 予備：iPhone の「場所の見張り（ジオフェンス）」で伊勢原・鶴巻温泉と、秦野の 3.5km 圏・2km 圏を見張る。
+///    万一アプリが止まっていても、ここに入ればアプリが起こされ、振動させられる。
 final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
     static let shared = TripMonitor()
 
     @Published private(set) var authorization: CLAuthorizationStatus = .notDetermined
     @Published private(set) var preciseLocation = true
     @Published private(set) var isTracking = false
+    @Published private(set) var isStandingBy = false
     @Published private(set) var distanceToDestination: Double?
     /// 見守り中の駅の名前
     @Published private(set) var trackingName = ""
@@ -23,15 +30,22 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var pendingStop: DispatchWorkItem?
     private var lastPoint: GeoPoint?
     private var wantsAlways = false
+    /// 待機中の位置確認で、前回は見張りエリアの中にいたか（入った瞬間だけ見守りを始めるため）
+    private var wasInsideWatchArea: Bool?
+
+    /// 伊勢原・鶴巻温泉付近に入って見守りを始めた時刻。
+    /// 秦野の 3.5km 圏・2km 圏の知らせは、これから 40 分以内のときだけ使う（地元を移動しただけで鳴らないように）。
+    private let armedKey = "armedAt"
+    private let armedValidSeconds: TimeInterval = 40 * 60
 
     func setup() {
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = kCLDistanceFilterNone
         manager.activityType = .otherNavigation
         manager.pausesLocationUpdatesAutomatically = false
         refreshAuthorization()
         registerWatchAreas()
+        // アプリが裏で起こされたときも、すぐ待機を再開する（Apple の決まり）
+        ensureStandby()
     }
 
     /// 「位置情報を許可」ボタン。iPhone の決まりで「使用中のみ」→「常に」の2段階で聞く。
@@ -60,6 +74,7 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     /// 降りる駅を変えたとき、見張りエリアを登録し直す
     func destinationChanged() {
+        wasInsideWatchArea = nil
         registerWatchAreas()
         EventLog.add("降りる駅を「\(AppSettings.shared.destination.name)」にしました")
     }
@@ -70,6 +85,55 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
         finishTrip(after: 0)
     }
 
+    // MARK: - 待機（省電力の位置確認）
+
+    /// 見守りがオンで「常に」許可があれば、省電力の位置確認を動かしておく。
+    /// アプリを開いたとき・見守りをオンにしたとき・アプリが裏で起こされたときに呼ぶ。
+    func ensureStandby() {
+        guard AppSettings.shared.enabled, manager.authorizationStatus == .authorizedAlways else {
+            if isStandingBy || isTracking { stopEverything() }
+            return
+        }
+        if backgroundSession == nil {
+            backgroundSession = CLBackgroundActivitySession()
+        }
+        manager.allowsBackgroundLocationUpdates = true
+        if trip == nil { useStandbyAccuracy() }
+        manager.startUpdatingLocation()
+        if !isStandingBy {
+            isStandingBy = true
+            EventLog.add("待機を始めました（省電力で位置を確認）")
+        }
+    }
+
+    private func stopEverything() {
+        trip = nil
+        isTracking = false
+        tickTimer?.invalidate()
+        tickTimer = nil
+        manager.stopUpdatingLocation()
+        manager.allowsBackgroundLocationUpdates = false
+        backgroundSession?.invalidate()
+        backgroundSession = nil
+        isStandingBy = false
+        distanceToDestination = nil
+        EventLog.add("見守りがオフなので位置の確認を止めました")
+    }
+
+    /// 電波・Wi-Fi による大まかな位置（GPS はほぼ使わない）。500m 動いたときだけ知らせてもらう。
+    private func useStandbyAccuracy() {
+        manager.desiredAccuracy = kCLLocationAccuracyKilometer
+        manager.distanceFilter = 500
+        manager.showsBackgroundLocationIndicator = false
+    }
+
+    /// 見守り中は GPS で細かく
+    private func useTripAccuracy() {
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.distanceFilter = kCLDistanceFilterNone
+        manager.showsBackgroundLocationIndicator = true
+    }
+
     // MARK: - 見張りエリアの登録
 
     private func refreshAuthorization() {
@@ -78,7 +142,8 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     private func registerWatchAreas() {
-        let watchAreas = AppSettings.shared.destination.watchAreas
+        let destination = AppSettings.shared.destination
+        let areas = destination.watchAreas + destination.stageAreas
         guard manager.authorizationStatus == .authorizedAlways else { return }
         guard CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else {
             EventLog.add("この iPhone では場所の見張りが使えません")
@@ -89,13 +154,13 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
             guard let circle = region as? CLCircularRegion else { return nil }
             return "\(circle.identifier)-\(Int(circle.radius))"
         })
-        let wanted = Set(watchAreas.map { "\($0.id)-\(Int($0.radius))" })
+        let wanted = Set(areas.map { "\($0.id)-\(Int($0.radius))" })
         if registered == wanted { return }
 
         for region in manager.monitoredRegions {
             manager.stopMonitoring(for: region)
         }
-        for area in watchAreas {
+        for area in areas {
             let region = CLCircularRegion(
                 center: CLLocationCoordinate2D(latitude: area.center.latitude, longitude: area.center.longitude),
                 radius: area.radius,
@@ -109,6 +174,11 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     // MARK: - 見守りの開始と終了
 
+    private var armedRecently: Bool {
+        guard let armed = UserDefaults.standard.object(forKey: armedKey) as? Date else { return false }
+        return Date().timeIntervalSince(armed) < armedValidSeconds
+    }
+
     private func startTrip(reason: String) {
         guard trip == nil else { return }
         pendingStop?.cancel()
@@ -118,11 +188,13 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
         tripDestination = destination
         trackingName = destination.name
         trip = TripLogic(startedAt: Date(), destination: destination.point, nextStation: destination.nextStation)
+        UserDefaults.standard.set(Date(), forKey: armedKey)
+
         if backgroundSession == nil {
             backgroundSession = CLBackgroundActivitySession()
         }
         manager.allowsBackgroundLocationUpdates = true
-        manager.showsBackgroundLocationIndicator = true
+        useTripAccuracy()
         manager.startUpdatingLocation()
 
         tickTimer?.invalidate()
@@ -133,23 +205,27 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
         EventLog.add("\(destination.name)までの見守りを開始しました（\(reason)）")
     }
 
-    /// 判定は今すぐ終えるが、GPS は少し動かし続ける。
-    /// アラームを自動で止める・保護者に通知を送り終えるまでアプリを起こしておくため。
+    /// 判定は今すぐ終えるが、GPS は少し細かいまま動かし続ける。
+    /// 振動を自動で止める・保護者に通知を送り終えるまでアプリを起こしておくため。
+    /// そのあとは待機（省電力）に戻る。
     private func finishTrip(after seconds: TimeInterval) {
         trip = nil
         isTracking = false
         tickTimer?.invalidate()
         tickTimer = nil
+        UserDefaults.standard.removeObject(forKey: armedKey)
 
         pendingStop?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.trip == nil else { return }
-            self.manager.stopUpdatingLocation()
-            self.manager.allowsBackgroundLocationUpdates = false
-            self.backgroundSession?.invalidate()
-            self.backgroundSession = nil
             self.distanceToDestination = nil
-            EventLog.add("GPS を止めました")
+            self.wasInsideWatchArea = nil
+            if AppSettings.shared.enabled {
+                self.useStandbyAccuracy()
+                EventLog.add("見守りを終えて、待機に戻りました")
+            } else {
+                self.stopEverything()
+            }
         }
         pendingStop = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
@@ -189,6 +265,23 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
 
+    /// 待機中の大まかな位置で、見張りエリア（伊勢原・鶴巻温泉など）に入ったかを調べる
+    private func checkWatchAreaEntry(_ location: CLLocation) {
+        guard location.horizontalAccuracy > 0, location.horizontalAccuracy <= 1500 else { return }
+        let point = GeoPoint(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
+        let destination = AppSettings.shared.destination
+        guard let area = destination.watchAreas.first(where: { distanceMeters(point, $0.center) <= $0.radius }) else {
+            wasInsideWatchArea = false
+            return
+        }
+        let enteredNow = wasInsideWatchArea == false
+        wasInsideWatchArea = true
+        guard enteredNow else { return }
+        let settings = AppSettings.shared
+        guard settings.enabled, settings.isInTimeWindow(Date()) else { return }
+        startTrip(reason: "\(area.name)付近に入ったため（位置の確認で検知）")
+    }
+
     // MARK: - CLLocationManagerDelegate
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -198,11 +291,30 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
             manager.requestAlwaysAuthorization()
         }
         registerWatchAreas()
+        ensureStandby()
     }
 
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
-        let name = AppSettings.shared.destination.watchAreas.first { $0.id == region.identifier }?.name ?? region.identifier
+        let destination = AppSettings.shared.destination
         let settings = AppSettings.shared
+
+        // 予備：秦野の 3.5km 圏・2km 圏に入った
+        if let index = destination.stageAreas.firstIndex(where: { $0.id == region.identifier }) {
+            let area = destination.stageAreas[index]
+            guard settings.enabled, settings.isInTimeWindow(Date()), armedRecently || trip != nil else {
+                EventLog.add("\(area.name)に入りました（帰り道の見守り中ではないので何もしません）")
+                return
+            }
+            EventLog.add("\(area.name)に入りました（予備の知らせ）")
+            if trip == nil { startTrip(reason: "\(area.name)に入ったため") }
+            guard var current = trip else { return }
+            let events = current.markStageDue(index + 1, at: Date())
+            trip = current
+            handle(events)
+            return
+        }
+
+        let name = destination.watchAreas.first { $0.id == region.identifier }?.name ?? region.identifier
         guard settings.enabled else {
             EventLog.add("\(name)付近に入りました（見守りがオフなので何もしません）")
             return
@@ -216,6 +328,10 @@ final class TripMonitor: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         for location in locations {
+            guard trip != nil else {
+                checkWatchAreaEntry(location)
+                continue
+            }
             guard location.horizontalAccuracy > 0, location.horizontalAccuracy <= 150 else { continue }
             let point = GeoPoint(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
             lastPoint = point

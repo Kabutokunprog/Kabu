@@ -17,6 +17,14 @@ struct Destination: Equatable {
     let watchAreas: [WatchArea]
     /// 画面に出す「いつ見守りを始めるか」の説明
     let startDescription: String
+    /// 予備：駅の 3.5km 圏・2km 圏。GPS が止まっていても、ここに入れば iPhone がアプリを起こしてくれる
+    var stageAreas: [WatchArea] {
+        let key = "\(Int(point.latitude * 10000))-\(Int(point.longitude * 10000))"
+        return [
+            WatchArea(id: "stage1-\(key)", name: "\(name)駅の3.5km圏", center: point, radius: 3500),
+            WatchArea(id: "stage2-\(key)", name: "\(name)駅の2km圏", center: point, radius: 2000),
+        ]
+    }
 
     /// 秦野駅（いつもの設定）。東京方面から来るときだけ見守るよう、伊勢原・鶴巻温泉で見張る。
     static let hadano = Destination(

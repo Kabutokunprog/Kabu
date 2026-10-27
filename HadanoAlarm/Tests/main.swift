@@ -166,5 +166,15 @@ do {
     check(!home.events.contains { $0.0 == .overshoot }, "乗り過ごしとは言わない")
 }
 
+print("7. GPS が届かず、予備の知らせ（3.5km圏・2km圏）だけが来た")
+do {
+    let start = Date(timeIntervalSince1970: 1_700_000_000)
+    var logic = TripLogic(startedAt: start)
+    check(logic.markStageDue(1, at: start) == [.stage(1)], "3.5km圏で1回目")
+    check(logic.markStageDue(2, at: start + 5) == [], "すぐ続いた2km圏は少し待つ")
+    check(logic.tick(at: start + 11) == [.stage(2)], "10秒あけて2回目")
+    check(logic.markStageDue(1, at: start + 30) == [], "同じ回は二度鳴らさない")
+}
+
 print(failures == 0 ? "\nすべて OK" : "\nNG が \(failures) 件あります")
 exit(failures == 0 ? 0 : 1)

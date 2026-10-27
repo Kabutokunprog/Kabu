@@ -1,5 +1,6 @@
 import Foundation
 import AudioToolbox
+import UIKit
 import UserNotifications
 
 enum AlarmKind {
@@ -59,6 +60,7 @@ final class Alarmer: ObservableObject {
     private var endAt = Date.distantPast
     private var pattern: [Bool] = []
     private let tickSeconds: TimeInterval = 0.7
+    private var backgroundTask = UIBackgroundTaskIdentifier.invalid
 
     func registerNotificationActions() {
         let stop = UNNotificationAction(identifier: Self.stopActionID, title: "止める", options: [])
@@ -90,6 +92,7 @@ final class Alarmer: ObservableObject {
             self.timer = nil
             self.isVibrating = false
             UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+            self.endBackgroundTask()
         }
     }
 
@@ -100,6 +103,12 @@ final class Alarmer: ObservableObject {
         step = 0
         endAt = Date().addingTimeInterval(kind.vibrateSeconds)
         isVibrating = true
+        // アプリが裏で起こされた直後でも、振動し終えるまで眠らされないようにする
+        if backgroundTask == .invalid {
+            backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "vibrate") { [weak self] in
+                self?.endBackgroundTask()
+            }
+        }
 
         let t = Timer(timeInterval: tickSeconds, repeats: true) { [weak self] _ in
             self?.tick()
@@ -110,6 +119,12 @@ final class Alarmer: ObservableObject {
 
         postNotification(kind, station: station)
         EventLog.add("\(kind.logName)を始めました")
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
     }
 
     private func tick() {

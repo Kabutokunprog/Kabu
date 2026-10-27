@@ -131,6 +131,15 @@ struct TripLogic {
         return events
     }
 
+    /// 「降りる駅の 3.5km 圏・2km 圏に入った」という iPhone の知らせ（ジオフェンス）で、
+    /// GPS の位置が届いていなくても n 回目までを鳴らす対象にする（予備の仕組み）
+    mutating func markStageDue(_ n: Int, at now: Date) -> [TripEvent] {
+        guard !finished else { return [] }
+        approachConfirmed = true
+        stagesDue = max(stagesDue, min(n, rules.stageDistances.count))
+        return fireNextStageIfReady(at: now)
+    }
+
     /// 位置が届かなくても数秒ごとに呼ぶ（残っているアラームや「降りた」判定のため）
     mutating func tick(at now: Date) -> [TripEvent] {
         guard !finished else { return [] }
