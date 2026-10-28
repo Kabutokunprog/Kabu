@@ -51,6 +51,8 @@
 - ステップ2: 実装済み。既定は `backend=ollama`、`ollama_model=qwen3.5:9b`（候補 gemma4:12b / qwen3:8b、2026-10時点のOllama公開一覧で確認）。
   `--ai claude|ollama` で一時切り替え、`trial 月` で両方の要約を読み比べるファイルを作成。偽のOllamaサーバーで動作確認済み。
 - ステップ3: `search` 実装済み・架空データで確認済み。
+- 本物データ取り込み済み（23,317件・2026-04〜10、me=たけ / partner=Serikana）。「曜日, M/D/YYYY」の日付形式に対応。
+- 回答はお姉さんキャラ（`persona=onee`）。`memory.py` で会話の記憶・覚えておくことメモ・仲良しレベル（10回ごと）を保存。要約は中立のまま。
 - 未確認: 本物のOllama（未インストール）、本物のClaude API（APIキー未設定）、本物のLINEデータ（ステップ4以降）。
 
 ---

@@ -17,6 +17,7 @@ from datetime import date
 import health
 import glossary
 import llm
+import memory
 import stats as st
 import summarize
 
@@ -180,7 +181,13 @@ PERSONAS = {
 
 
 def system_prompt(settings) -> str:
-    style = PERSONAS.get(settings.get("persona", "onee"), PERSONAS["onee"])
+    persona = settings.get("persona", "onee")
+    style = PERSONAS.get(persona, PERSONAS["onee"])
+    m = memory.load()
+    if persona == "onee":
+        style += "\n" + memory.prompt_text(m)
+    elif m["notes"]:
+        style += "\n- これまでの会話で分かっていること:\n" + m["notes"]
     return summarize.system_prompt(settings).replace(
         "- 出力は指定のJSONのみ。日本語で簡潔に。",
         "- 与えられた要約・数値・抜粋だけを根拠に答え、無い情報は「記録からは分からない」と言う。\n"

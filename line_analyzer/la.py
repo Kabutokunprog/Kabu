@@ -25,6 +25,7 @@ import glossary  # noqa: E402
 import health  # noqa: E402
 import line_parser  # noqa: E402
 import llm  # noqa: E402
+import memory  # noqa: E402
 import search  # noqa: E402
 import stats as st  # noqa: E402
 import summarize  # noqa: E402
@@ -158,6 +159,16 @@ def cmd_ask(a):
         print(f"\n--- 送信予定 約{info['est_tokens']:,}トークン / 期間 {info['start']}〜{info['end']} / キーワード {info['keywords']}")
         return
     _print_answer(out, info)
+    _remember(con, s, a.question, out)
+
+
+def _remember(con, s, question, out):
+    """やりとりを記憶し、レベルアップを知らせ、ときどきメモをまとめ直す。"""
+    m = memory.record(con, question, out)
+    if m.get("level_up"):
+        print(f"\n♡ 仲良しレベルが {m['level_up']} に上がりました（{memory.stage(m)}）")
+    if memory.needs_notes(m):
+        memory.update_notes(con, s, ask.system_prompt(s))
 
 
 def _ai_label(s) -> str:
@@ -168,7 +179,10 @@ def cmd_chat(a):
     s = config.load_settings()
     print(f"（使うAI: {_ai_label(s)}）")
     con = db.connect()
-    history = []
+    history = memory.recent(con)
+    m = memory.load()
+    if m["turns"]:
+        print(f"仲良しレベル {memory.level(m)}（これまで{m['turns']}回お話ししました）。前回の続きからどうぞ。")
     print("質問をどうぞ（終わるときは「終了」または Ctrl+D）")
     while True:
         try:
@@ -179,11 +193,17 @@ def cmd_chat(a):
             break
         if not q:
             continue
-        out, info = ask.answer(con, q, s, history=history[-4:])
+        out, info = ask.answer(con, q, s, history=history[-6:])
         print()
         _print_answer(out, info)
         # 次の質問のために、質問と答えだけ（根拠データは除く）を覚えておく
         history += [{"role": "user", "content": q}, {"role": "assistant", "content": out}]
+        _remember(con, s, q, out)
+    # 終わるときに、まだメモに入れていない話を覚えておく
+    m = memory.load()
+    if m["turns"] - m.get("noted_at", 0) >= 2:
+        print("（今日の話を覚えています…）")
+        memory.update_notes(con, s, ask.system_prompt(s))
 
 
 def cmd_health_import(a):
@@ -346,6 +366,18 @@ def cmd_trial(a):
     print(f"開くには: open {path}")
 
 
+def cmd_memory(a):
+    con = db.connect()
+    m = memory.load()
+    if a.action == "reset":
+        if _confirm("お姉さんの記憶（やりとりの履歴・メモ・レベル）をすべて消します。よろしいですか？", a.yes):
+            memory.reset(con)
+            print("記憶を消しました。次は初対面からです。")
+        return
+    print(f"仲良しレベル {memory.level(m)}（{memory.stage(m)}） / これまで{m['turns']}回")
+    print("覚えていること:\n" + (m["notes"] or "（まだありません）"))
+
+
 def cmd_settings(a):
     s = config.load_settings()
     for kv in a.set or []:
@@ -430,6 +462,11 @@ def main(argv=None):
 
     x = sub.add_parser("cost", help="これまでのAI使用量と料金の目安")
     x.set_defaults(func=cmd_cost)
+
+    x = sub.add_parser("memory", help="お姉さんの記憶とレベルを見る・消す")
+    x.add_argument("action", nargs="?", choices=["show", "reset"], default="show")
+    x.add_argument("-y", "--yes", action="store_true")
+    x.set_defaults(func=cmd_memory)
 
     x = sub.add_parser("settings", help="設定の表示・変更（例: --set model_summary=claude-haiku-5-5）")
     x.add_argument("--set", nargs="+")
