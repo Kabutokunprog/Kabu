@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS usage (        -- トークン使用量の記録
 
 def connect() -> sqlite3.Connection:
     path = config.db_path()
-    con = sqlite3.connect(path)
+    con = sqlite3.connect(path, timeout=30)  # 要約の実行中などは、空くまで待つ
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
     config.secure(path)

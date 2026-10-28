@@ -101,13 +101,15 @@ let cur = null, busy = false, threads = [];
 const $ = id => document.getElementById(id);
 
 async function api(path, body) {
-  const r = await fetch(`/api/${path}${path.includes("?") ? "&" : "?"}t=${T}`,
+  let r;
+  try { r = await fetch(`/api/${path}${path.includes("?") ? "&" : "?"}t=${T}`,
     body === undefined ? {} : {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  } catch (e) { throw new Error("locked"); }  // 裏の仕組みが止まっている（鍵がかかった）
   if (r.status === 403 || !r.ok && r.status !== 500) throw new Error("locked");
   return r.json();
 }
 function locked() {
-  document.body.innerHTML = "<div class='empty' style='padding:40px'>鍵がかかりました。<br>アイコンからもう一度開いてください。</div>";
+  document.body.innerHTML = "<div class='empty' style='padding:40px'>鍵がかかりました（30分操作がなかったか、画面を閉じたため）。<br>「ふたりの記録帳」アイコンからもう一度開いてください。</div>";
 }
 function fmt(ts) { return ts ? ts.slice(5, 16).replace("T", " ").replace("-", "/") : ""; }
 function esc(s) { return String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
