@@ -198,8 +198,10 @@ def system_prompt(settings) -> str:
 
 
 def answer(con, question: str, settings, raw: bool = False, history=None,
-           dry_run: bool = False) -> tuple[str, dict]:
+           dry_run: bool = False, chat_context: str = "") -> tuple[str, dict]:
     ctx, info = build_context(con, question, settings, raw)
+    if chat_context:
+        ctx += "\n\n" + chat_context
     user = f"{ctx}\n\n質問: {question}"
     info["est_tokens"] = llm.estimate_tokens(system_prompt(settings) + user)
     if dry_run:

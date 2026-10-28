@@ -165,13 +165,13 @@ def cmd_ask(a):
     _remember(con, s, a.question, out)
 
 
-def _remember(con, s, question, out):
-    """やりとりを記憶し、レベルアップを知らせ、ときどきメモをまとめ直す。"""
-    m = memory.record(con, question, out)
+def _remember(con, s, question, out, tid=None):
+    """やりとりを記憶し、レベルアップを知らせ、長い話題やメモをまとめ直す。"""
+    tid = tid or memory.latest_thread(con)
+    m = memory.record(con, question, out, tid)
     if m.get("level_up"):
         print(f"\n♡ 仲良しレベルが {m['level_up']} に上がりました（{memory.stage(m)}）")
-    if memory.needs_notes(m):
-        memory.update_notes(con, s, ask.system_prompt(s))
+    memory.after_reply(con, tid, m, s, ask.system_prompt(s))
 
 
 def _ai_label(s) -> str:
@@ -187,7 +187,8 @@ def cmd_chat(a):
     s = config.load_settings()
     print(f"（使うAI: {_ai_label(s)}）")
     con = db.connect()
-    history = memory.recent(con)
+    tid = memory.latest_thread(con)
+    history = memory.recent(con, tid)
     m = memory.load()
     if m["turns"]:
         print(f"仲良しレベル {memory.level(m)}（これまで{m['turns']}回お話ししました）。前回の続きからどうぞ。")
@@ -201,12 +202,13 @@ def cmd_chat(a):
             break
         if not q:
             continue
-        out, info = ask.answer(con, q, s, history=history[-6:])
+        out, info = ask.answer(con, q, s, history=history[-memory.KEEP_RECENT:],
+                               chat_context=memory.context_text(con, tid))
         print()
         _print_answer(out, info)
         # 次の質問のために、質問と答えだけ（根拠データは除く）を覚えておく
         history += [{"role": "user", "content": q}, {"role": "assistant", "content": out}]
-        _remember(con, s, q, out)
+        _remember(con, s, q, out, tid)
     # 終わるときに、まだメモに入れていない話を覚えておく
     m = memory.load()
     if m["turns"] - m.get("noted_at", 0) >= 2:
@@ -409,6 +411,13 @@ def cmd_memory(a):
     print("覚えていること:\n" + (m["notes"] or "（まだありません）"))
 
 
+def cmd_app(a):
+    import auth
+    import chat_web
+    auth.require("お姉さんとのおしゃべりを開きます")
+    chat_web.run()
+
+
 def cmd_settings(a):
     s = config.load_settings()
     for kv in a.set or []:
@@ -502,6 +511,9 @@ def main(argv=None):
     x = sub.add_parser("settings", help="設定の表示・変更（例: --set model_summary=claude-haiku-5-5）")
     x.add_argument("--set", nargs="+")
     x.set_defaults(func=cmd_settings)
+
+    x = sub.add_parser("app", help="お姉さんとのおしゃべり画面を開く（指紋認証つき）")
+    x.set_defaults(func=cmd_app)
 
     a = p.parse_args(argv)
     if getattr(a, "ai", None) and a.cmd != "trial":

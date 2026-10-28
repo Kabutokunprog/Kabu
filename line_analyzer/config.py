@@ -43,6 +43,8 @@ def home() -> Path:
     if not p.exists():
         p.mkdir(parents=True)
     os.chmod(p, 0o700)
+    # Spotlight（Macの検索）に中身を覚えさせない目印
+    (p / ".metadata_never_index").touch(exist_ok=True)
     return p
 
 
@@ -61,6 +63,7 @@ def glossary_path() -> Path:
 def reports_dir() -> Path:
     p = home() / "reports"
     p.mkdir(exist_ok=True)
+    os.chmod(p, 0o700)
     return p
 
 
