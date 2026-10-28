@@ -4,6 +4,7 @@
   iPhone / Android の新しい形式   2024/04/01(月) + "09:15<TAB>名前<TAB>本文"
   Android の古い形式             "午後3:05 名前 本文" など
   PC版の古い形式                 2019.04.01 月曜日
+  曜日が先・月/日/年の形式        火, 10/28/2026
 複数行のメッセージ（"..." で囲まれる）にも対応。
 """
 from __future__ import annotations
@@ -14,6 +15,8 @@ from dataclasses import dataclass
 DATE_RE = re.compile(
     r"^\s*(\d{4})[/.](\d{1,2})[/.](\d{1,2})\s*(?:\(.{1,3}\)|（.{1,3}）|[月火水木金土日]曜日?)?\s*$"
 )
+# 「火, 10/28/2026」「Tue, 10/28/2026」のように曜日が先で、月/日/年の順の形式
+DATE_MDY_RE = re.compile(r"^\s*(?:[月火水木金土日]|[A-Z][a-z]{2})[^,]{0,3},\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*$")
 TIME_RE = re.compile(r"^(午前|午後|AM|PM)?\s?(\d{1,2}):(\d{2})(?:\t| )(.*)$")
 CALL_RE = re.compile(r"通話時間\s*(?:(\d+):)?(\d{1,2}):(\d{2})")
 
@@ -73,6 +76,11 @@ def parse(lines) -> list[Message]:
         m = DATE_RE.match(line)
         if m:
             y, mo, d = m.groups()[:3]
+            cur_date = f"{int(y):04d}-{int(mo):02d}-{int(d):02d}"
+            continue
+        m = DATE_MDY_RE.match(line)
+        if m:
+            mo, d, y = m.groups()
             cur_date = f"{int(y):04d}-{int(mo):02d}-{int(d):02d}"
             continue
 
