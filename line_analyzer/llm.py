@@ -3,14 +3,18 @@
 AIの呼び出しはこのファイルだけで行う。設定 backend で呼び出し先を切り替える:
   "ollama" … Mac内のAI（Ollama）。会話は外に出ない・無料
   "claude" … Claude API（Anthropic）。精度が高い・有料・圧縮した会話が送られる
+  "gemini" … Gemini API（Google）。精度が高い・圧縮した会話が送られる
 """
 from __future__ import annotations
 
 import json
+import os
 import re
+import ssl
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from types import SimpleNamespace
 
 import config
@@ -43,8 +47,13 @@ def chunk_chars(settings) -> int:
 
 
 def model_name(settings, model: str) -> str:
-    """実際に使われるモデル名（Mac内のAIなら ollama_model）。"""
-    return settings["ollama_model"] if is_local(settings) else model
+    """実際に使われるモデル名（Mac内のAIなら ollama_model、Geminiなら gemini_model）。"""
+    b = backend(settings)
+    if b == "ollama":
+        return settings["ollama_model"]
+    if b == "gemini":
+        return settings["gemini_model"]
+    return model
 
 
 def estimate_tokens(text: str) -> int:
@@ -59,6 +68,8 @@ def call(con, purpose: str, model: str, system: str, user: str,
     s = config.load_settings()
     if is_local(s):
         return _call_ollama(con, purpose, s, system, user, max_tokens, history, json_mode)
+    if backend(s) == "gemini":
+        return _call_gemini(con, purpose, s, system, user, max_tokens, history, json_mode)
     return _call_claude(con, purpose, model, system, user, effort, max_tokens, history)
 
 
@@ -128,6 +139,64 @@ def _call_ollama(con, purpose, s, system, user, max_tokens, history, json_mode) 
     text = (resp.get("message") or {}).get("content", "")
     # 考える過程を本文に混ぜるモデルがあるので取り除く
     return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+
+
+def _gemini_key() -> str:
+    key = os.environ.get("GEMINI_API_KEY", "")
+    env = Path.home() / ".claude" / "gemini.env"  # ほかのツールと共用の保存場所
+    if not key and env.exists():
+        for line in env.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith(("GEMINI_API_KEY=", "export GEMINI_API_KEY=")):
+                key = line.split("=", 1)[1].strip().strip('"').strip("'")
+    if not key:
+        raise SystemExit("GeminiのAPIキーがありません。 export GEMINI_API_KEY=... で設定してください。")
+    return key
+
+
+def _ssl_context():
+    """python.org版のPythonは証明書の一覧が空のことがあるので、そのときはMac本体の一覧を使う。"""
+    ctx = ssl.create_default_context()
+    if not ctx.cert_store_stats().get("x509_ca") and Path("/etc/ssl/cert.pem").exists():
+        ctx.load_verify_locations("/etc/ssl/cert.pem")
+    return ctx
+
+
+def _call_gemini(con, purpose, s, system, user, max_tokens, history, json_mode) -> str:
+    model = s["gemini_model"]
+    contents = [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
+                for m in list(history or [])] + [{"role": "user", "parts": [{"text": user}]}]
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.4},
+        # 恋人同士の会話の分析なので、性的な話題でも止めないようにする
+        "safetySettings": [{"category": c, "threshold": "BLOCK_NONE"} for c in (
+            "HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH",
+            "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT")],
+    }
+    if json_mode:
+        body["generationConfig"]["responseMimeType"] = "application/json"
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": _gemini_key()})
+    try:
+        with urllib.request.urlopen(req, timeout=600, context=_ssl_context()) as r:
+            resp = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise SystemExit(f"Geminiでエラーが起きました（{e.code}）: {e.read().decode('utf-8', 'replace')[:300]}")
+    except urllib.error.URLError:
+        raise SystemExit("Geminiに接続できません。インターネットの接続を確認してください。")
+
+    u = resp.get("usageMetadata") or {}
+    db.log_usage(con, purpose, model, SimpleNamespace(
+        input_tokens=u.get("promptTokenCount", 0),
+        output_tokens=u.get("candidatesTokenCount", 0) + u.get("thoughtsTokenCount", 0)))
+    cands = resp.get("candidates") or []
+    if not cands or cands[0].get("finishReason") in ("SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"):
+        return REFUSAL
+    parts = (cands[0].get("content") or {}).get("parts") or []
+    return "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
 
 
 def parse_json(text: str):

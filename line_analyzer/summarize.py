@@ -72,7 +72,12 @@ def system_prompt(settings) -> str:
 - 出力は指定のJSONのみ。日本語で簡潔に。"""
 
 
-JSON_SPEC = """次の形のJSONだけを出力:
+def json_spec(settings) -> str:
+    me, pa = settings["me_label"], settings["partner_label"]
+    return _JSON_SPEC.replace("彼女の", f"{pa}の").replace("彼の", f"{me}の")
+
+
+_JSON_SPEC = """次の形のJSONだけを出力:
 {
  "overview": "この期間の二人の様子（3〜5文）",
  "events": ["日付 出来事（デート・旅行・行った場所・記念日・喧嘩など）"],
@@ -124,7 +129,7 @@ def build_month_requests(con, month: str, settings) -> list[str]:
         body = "\n".join(t for _, t in part)
         reqs.append(f"{head}\n{prev_txt}\n数値（自動集計）:\n{stat_txt}\n\n"
                     + (f"体調・行為などの記録:\n{ev}\n\n" if ev else "")
-                    + f"会話:\n{body}\n\n{JSON_SPEC}")
+                    + f"会話:\n{body}\n\n{json_spec(settings)}")
     return reqs
 
 
@@ -159,7 +164,7 @@ def make_summary(con, month: str, settings) -> dict:
                 merged.append(g[0])
                 continue
             merge_req = (f"対象期間: {month}。以下は同じ月を分割して要約した結果です（時間順）。"
-                         f"1つに統合してください。\n{json.dumps(g, ensure_ascii=False)}\n\n{JSON_SPEC}")
+                         f"1つに統合してください。\n{json.dumps(g, ensure_ascii=False)}\n\n{json_spec(settings)}")
             out = llm.call(con, f"merge {month}", model, system, merge_req, effort="low", max_tokens=8000,
                            json_mode=True)
             merged.append(llm.parse_json(out) or g[-1])

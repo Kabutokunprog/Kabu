@@ -21,13 +21,15 @@ DEFAULT_SETTINGS = {
     "partner_label": "彼女",
     # 質問への回答の話し方: "onee"（ノリの良い色っぽいお姉さん） / "plain"（丁寧な説明）
     "persona": "onee",
-    # 使うAI: "ollama"（Mac内のAI・オフライン・無料） / "claude"（Claude API・有料）
+    # 使うAI: "ollama"（Mac内のAI・オフライン・無料） / "claude"（Claude API・有料） / "gemini"（Gemini API）
     "backend": "ollama",
     # 使うClaudeのモデル（費用を抑えたい場合は summary を claude-haiku-5-5 に）
     "model_summary": "claude-opus-5-5",
     "model_answer": "claude-opus-5-5",
     # 1回の要約に送る最大文字数（これを超える月は分割して要約）
     "max_chars_per_chunk": 40000,
+    # Geminiのモデル
+    "gemini_model": "gemini-pro-latest",
     # Mac内のAI（Ollama）の設定
     "ollama_model": "qwen3.5:9b",       # 候補: qwen3.5:9b / gemma4:12b / qwen3:8b
     "ollama_url": "http://localhost:11434",

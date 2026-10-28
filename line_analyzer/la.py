@@ -40,7 +40,7 @@ LOCAL_READ_SPEED, LOCAL_WRITE_SPEED, LOCAL_OUTPUT_PER_CALL = 250, 20, 1500
 
 def _cost(model, tin, tout) -> float:
     if not model.startswith("claude"):
-        return 0.0  # Mac内のAIは無料
+        return 0.0  # Mac内のAIは無料（Geminiは料金表が別なので計算しない）
     pi, po = PRICES.get(model, (4.0, 20.0))
     return tin / 1e6 * pi + tout / 1e6 * po
 
@@ -101,6 +101,9 @@ def _print_plan(con, s, months):
         sec = tin / LOCAL_READ_SPEED + calls * LOCAL_OUTPUT_PER_CALL / LOCAL_WRITE_SPEED
         print(f"Mac内のAI（{model}）で処理します。料金0円・会話は外に出ません。")
         print(f"処理時間の目安: 約{_duration(sec)}（Macの状態で前後します。途中で止めても、終わった月は保存されます）")
+    elif llm.backend(s) == "gemini":
+        print(f"Gemini（{model}）で処理します。圧縮した会話がGoogle社に送られます。")
+        print(f"送る量: 入力 約{tin:,}トークン + 出力 約{tout:,}トークン（料金はGoogleの料金表によります）")
     else:
         print(f"Claude（{model}）で処理します。圧縮した会話がAnthropic社に送られます。")
         print(f"見積もり: 入力 約{tin:,}トークン + 出力 約{tout:,}トークン ≒ ${_cost(model, tin, tout):.2f}")
@@ -172,7 +175,12 @@ def _remember(con, s, question, out):
 
 
 def _ai_label(s) -> str:
-    return f"Mac内のAI {s['ollama_model']}" if llm.is_local(s) else f"Claude {s['model_answer']}"
+    b = llm.backend(s)
+    if b == "ollama":
+        return f"Mac内のAI {s['ollama_model']}"
+    if b == "gemini":
+        return f"Gemini {s['gemini_model']}"
+    return f"Claude {s['model_answer']}"
 
 
 def cmd_chat(a):
@@ -256,7 +264,7 @@ def cmd_glossary(a):
         for term, n in cands:
             ctx = " ｜ ".join(glossary.contexts(con, term))
             lines.append(f"- {term}（{n}回） 例: {ctx}")
-        req = ("次はカップルのLINEで頻出する言葉と使用例です（M=彼, P=彼女）。"
+        req = (f"次はカップルのLINEで頻出する言葉と使用例です（M={s['me_label']}, P={s['partner_label']}）。"
                "一般的な言葉は除き、二人特有の隠語・あだ名・合言葉と思われるものだけを選び、"
                "意味を推測してください。性的な隠語は婉曲な説明にしてください。\n"
                + "\n".join(lines)
@@ -321,7 +329,8 @@ def cmd_cost(a):
     for r in rows:
         c = _cost(r["model"], (r["i"] or 0) + (r["cw"] or 0) * 1.25 + (r["cr"] or 0) * 0.1, r["o"] or 0)
         total += c
-        free = "（Mac内のAI・無料）" if not r["model"].startswith("claude") else ""
+        free = "" if r["model"].startswith("claude") else (
+            "（Gemini・料金はGoogleで確認）" if r["model"].startswith("gemini") else "（Mac内のAI・無料）")
         print(f"{r['model']}{free}: {r['n']}回 入力{(r['i'] or 0) + (r['cr'] or 0) + (r['cw'] or 0):,} 出力{r['o'] or 0:,}トークン ≒ ${c:.2f}")
     print(f"合計 ≒ ${total:.2f}")
 
@@ -338,32 +347,26 @@ def cmd_trial(a):
     con = db.connect()
     if a.month not in db.months(con):
         raise SystemExit(f"{a.month} の会話がありません。取り込み済みの月: {', '.join(db.months(con)[-6:])} など")
-    results = {}
     for name in a.ai:
         llm.set_backend(name)
-        print(f"\n■ {_ai_label(s)}")
+        title = _ai_label(s)
+        print(f"\n■ {title}")
         _print_plan(con, s, [a.month])
-        if name == "claude" and not _confirm("この1か月分の圧縮した会話をClaudeに送ります。よろしいですか？", a.yes):
+        if name != "ollama" and not _confirm(f"この1か月分の圧縮した会話を{title}に送ります。よろしいですか？", a.yes):
             continue
         print("要約中…", flush=True)
-        results[_ai_label(s)] = summarize.make_summary(con, a.month, s)
-    llm.set_backend(None)
-    if not results:
-        return
-    lines = [f"# 読み比べ {a.month}", ""]
-    for title, j in results.items():
-        lines += [f"## {title}", ""]
-        j.pop("new_slang", None)
+        j = summarize.make_summary(con, a.month, s)
+        lines = [f"# 読み比べ {a.month}（{title}）", ""]
         for k, v in j.items():
             if isinstance(v, (list, dict)):
                 v = json.dumps(v, ensure_ascii=False)
             lines.append(f"- **{k}**: {v}")
-        lines.append("")
-    path = config.reports_dir() / f"trial_{a.month}.md"
-    path.write_text("\n".join(lines), encoding="utf-8")
-    config.secure(path)
-    print("\n作成しました:", path)
-    print(f"開くには: open {path}")
+        path = config.reports_dir() / f"trial_{a.month}_{name}.md"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        config.secure(path)
+        print("作成しました:", path)
+        print(f"開くには: open {path}")
+    llm.set_backend(None)
 
 
 def cmd_memory(a):
@@ -384,8 +387,8 @@ def cmd_settings(a):
         k, v = kv.split("=", 1)
         if k not in config.DEFAULT_SETTINGS:
             raise SystemExit(f"不明な項目です: {k}")
-        if k == "backend" and v not in ("ollama", "claude"):
-            raise SystemExit("backend は ollama（Mac内のAI）か claude のどちらかです。")
+        if k == "backend" and v not in ("ollama", "claude", "gemini"):
+            raise SystemExit("backend は ollama（Mac内のAI）・claude・gemini のどれかです。")
         s[k] = int(v) if isinstance(config.DEFAULT_SETTINGS[k], int) else v
     if a.set:
         config.save_settings(s)
@@ -408,7 +411,7 @@ def main(argv=None):
     x.add_argument("--month", nargs="+", help="特定の月だけ（例: 2026-04 2026-05）")
     x.add_argument("--force", action="store_true", help="全部の月を作り直す")
     x.add_argument("--dry-run", action="store_true", help="見積もりだけ表示")
-    x.add_argument("--ai", choices=["ollama", "claude"], help="今回だけ使うAIを指定")
+    x.add_argument("--ai", choices=["ollama", "claude", "gemini"], help="今回だけ使うAIを指定")
     x.add_argument("-y", "--yes", action="store_true", help="確認なしで実行")
     x.set_defaults(func=cmd_summarize)
 
@@ -421,7 +424,7 @@ def main(argv=None):
     x.add_argument("question")
     x.add_argument("--raw", action="store_true", help="その期間の会話全文も渡す（トークン多め）")
     x.add_argument("--dry-run", action="store_true", help="AIに送る内容と量だけ表示")
-    x.add_argument("--ai", choices=["ollama", "claude"], help="今回だけ使うAIを指定")
+    x.add_argument("--ai", choices=["ollama", "claude", "gemini"], help="今回だけ使うAIを指定")
     x.set_defaults(func=cmd_ask)
 
     x = sub.add_parser("search", help="キーワードを含む会話を一覧表示（AI不使用・無料）")
@@ -434,7 +437,7 @@ def main(argv=None):
 
     x = sub.add_parser("trial", help="1か月分をMac内のAIとClaudeの両方で要約して読み比べる")
     x.add_argument("month", help="例: 2026-04")
-    x.add_argument("--ai", nargs="+", choices=["ollama", "claude"], default=["ollama", "claude"],
+    x.add_argument("--ai", nargs="+", choices=["ollama", "claude", "gemini"], default=["ollama", "claude"],
                    help="使うAI（既定は両方）")
     x.add_argument("-y", "--yes", action="store_true")
     x.set_defaults(func=cmd_trial)
