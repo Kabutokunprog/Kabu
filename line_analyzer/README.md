@@ -9,8 +9,9 @@ LINEのトーク履歴を最初から最後まで読み込み、月ごとに二�
   `~/.line_analyzer_private/` という隠しフォルダに保存され、あなただけが読める設定になります。
 - LINEのテキストファイルを、このリポジトリのフォルダにコピーしないでください
   （念のため `.txt` などはGitHubに上がらないよう設定済みです）。
-- AIに送るのは「圧縮した会話」と「要約」だけで、Anthropic社のAPIを経由します。
-  それ以外の場所には送りません。
+- AIは2種類から選べます（あとから切り替えもできます）。
+  - **Mac内のAI（標準）**: Ollamaというソフトを使い、会話は一切外に出ません。無料です。
+  - **Claude**: 精度が高い代わりに有料で、「圧縮した会話」と「要約」がAnthropic社のAPIに送られます。
 - MacBookではFileVault（ディスクの暗号化）をオンにしておくと、さらに安心です。
   保存場所は `LA_HOME=保存したい場所` で変えられます。
 
@@ -35,7 +36,12 @@ LINEのトーク履歴を最初から最後まで読み込み、月ごとに二�
    cd このフォルダの場所/line_analyzer
    python3 -m pip install -r requirements.txt
    ```
-3. AnthropicのAPIキーを設定します（https://console.anthropic.com/ で発行）:
+3. **Mac内のAIを使う場合（標準）**:
+   1. https://ollama.com からOllamaをダウンロードして、アプリケーションフォルダに入れ、起動します。
+   2. ターミナルでAI本体を取得します（数GB・初回だけ）: `ollama pull qwen3.5:9b`
+   3. ほかの候補（メモリ16GBで動くもの）: `gemma4:12b`、`qwen3:8b`。
+      変えるときは `python3 la.py settings --set ollama_model=gemma4:12b`
+4. **Claudeも使う場合**: AnthropicのAPIキーを設定します（https://console.anthropic.com/ で発行）:
    ```
    export ANTHROPIC_API_KEY="sk-ant-..."
    ```
@@ -81,7 +87,23 @@ python3 la.py glossary confirm ぽんぽこ
 辞書を直したあと、過去の要約にも反映したいときは `python3 la.py summarize --force`。
 性生活についての分析は、露骨な表現ではなく「深いつながりを好む傾向」「満足している様子」のような穏やかな表現で書かれます。
 
-### 5. MedicationReminderの記録と合わせる
+### 5. キーワードで探す（AI不使用・無料）
+```
+python3 la.py search 鎌倉
+python3 la.py search 鎌倉 --from 2026-04 --to 2026-06
+python3 la.py search 鎌倉 大仏 -C 2     # 両方を含む発言を、前後2通ずつ表示
+```
+当たった発言には ▶ が付きます。辞書に登録した言葉で探すと、その意味も表示されます。
+
+### 6. AIを切り替える・読み比べる
+```
+python3 la.py settings --set backend=claude    # ふだん使うAIをClaudeに（戻すときは backend=ollama）
+python3 la.py ask "最近どう？" --ai claude      # 今回だけClaudeを使う
+python3 la.py trial 2026-04                    # 1か月分を両方で要約し、読み比べ用ファイルを作る
+```
+`trial` は保存済みの要約を変えません。結果は秘密フォルダの `reports/trial_月.md` にできます。
+
+### 7. MedicationReminderの記録と合わせる
 MedicationReminderから記録をCSVかJSONで書き出して取り込みます。
 ```
 python3 la.py health-import ~/Downloads/medication.csv
@@ -103,8 +125,11 @@ python3 la.py correlate
 | `python3 la.py settings --set model_summary=claude-haiku-5-5` | 要約を安いモデルに変える（料金が約40分の1。精度は少し下がります） |
 | `python3 la.py settings --set me_label=僕 partner_label=かなちゃん` | 結果での呼び方を変える |
 
-## 料金の目安
-LINEの文字数がおよそ100万文字（数万行）の場合、最初の要約は
+## 料金・時間の目安
+Mac内のAIは0円です。代わりに、100万文字ほどの会話だと最初の要約に数時間かかります
+（実行前に時間の目安が表示されます。途中で止めても、終わった月は保存されます）。
+
+Claudeの場合、LINEの文字数がおよそ100万文字（数万行）なら、最初の要約は
 - 標準設定（claude-opus-5-5）: 数ドル程度
 - 安い設定（claude-haiku-5-5）: 数十セント程度
 

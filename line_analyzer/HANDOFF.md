@@ -38,12 +38,20 @@
 | `ask.py` | 質問文から期間とキーワードをAIを使わずに読み取り、「要約＋集計＋抜粋」だけをAIに渡して回答させる |
 | `glossary.py` | 二人の言葉（隠語）の辞書。よく出る言葉を候補として拾い、AIに意味を推測させる |
 | `health.py` | MedicationReminderなどのCSV/JSONを取り込み（列名は自動推測）、記録日の前・当日・後と会話を比べる |
-| `llm.py` | **AIの呼び出しはこのファイルだけ**（現在はClaude APIのみ）。使用量はDBの usage テーブルに記録 |
+| `llm.py` | **AIの呼び出しはこのファイルだけ**。設定 `backend`（ollama / claude）で切り替え。使用量はDBの usage テーブルに記録 |
+| `search.py` | AIを使わないキーワード検索（`la.py search`） |
 
 検証の状況:
 - 架空のデータで、取り込み・差分追加・集計・比較・辞書・要約（AI部分は偽の応答に差し替え）・質問の流れが動くことは確認済みです。
 - **本物のClaude APIへの呼び出しは一度も試していません**（クラウド環境にAPIキーが無かったため）。
 - MedicationReminderの実際の出力形式は未確認です。
+
+### 進み具合（2026-10-28 MacBookで更新）
+- ステップ1: ユーザーは **C（切り替え可能・まずMac内のAIで試す）** を選択済み。Mac: M1 Pro / メモリ16GB / Python 3.14。
+- ステップ2: 実装済み。既定は `backend=ollama`、`ollama_model=qwen3.5:9b`（候補 gemma4:12b / qwen3:8b、2026-10時点のOllama公開一覧で確認）。
+  `--ai claude|ollama` で一時切り替え、`trial 月` で両方の要約を読み比べるファイルを作成。偽のOllamaサーバーで動作確認済み。
+- ステップ3: `search` 実装済み・架空データで確認済み。
+- 未確認: 本物のOllama（未インストール）、本物のClaude API（APIキー未設定）、本物のLINEデータ（ステップ4以降）。
 
 ---
 

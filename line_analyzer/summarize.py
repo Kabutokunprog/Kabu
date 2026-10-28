@@ -114,7 +114,7 @@ def build_month_requests(con, month: str, settings) -> list[str]:
     if prev:
         pj = json.loads(prev["json"])
         prev_txt = f"前の期間の様子（参考）: {pj.get('overview', '')}\n"
-    parts = _split(days, settings["max_chars_per_chunk"])
+    parts = _split(days, llm.chunk_chars(settings))
     reqs = []
     for i, part in enumerate(parts, 1):
         head = f"対象期間: {month}" + (f"（{len(parts)}分割の{i}番目）" if len(parts) > 1 else "")
@@ -130,21 +130,28 @@ def stale_months(con) -> list[str]:
     return [m for m in db.months(con) if done.get(m) != db.month_signature(con, m)]
 
 
-def summarize_month(con, month: str, settings) -> dict:
+def make_summary(con, month: str, settings) -> dict:
+    """その月の要約を作って返す（保存はしない）。"""
     model = settings["model_summary"]
     system = system_prompt(settings)
     reqs = build_month_requests(con, month, settings)
     results = []
     for req in reqs:
-        out = llm.call(con, f"summary {month}", model, system, req, effort="low", max_tokens=8000)
+        out = llm.call(con, f"summary {month}", model, system, req, effort="low", max_tokens=8000,
+                       json_mode=True)
         results.append(llm.parse_json(out) or {"overview": out})
     if len(results) > 1:
         merge_req = (f"対象期間: {month}。以下は同じ月を分割して要約した結果です。"
                      f"1つに統合してください。\n{json.dumps(results, ensure_ascii=False)}\n\n{JSON_SPEC}")
-        out = llm.call(con, f"merge {month}", model, system, merge_req, effort="low", max_tokens=8000)
-        result = llm.parse_json(out) or results[-1]
-    else:
-        result = results[0]
+        out = llm.call(con, f"merge {month}", model, system, merge_req, effort="low", max_tokens=8000,
+                       json_mode=True)
+        return llm.parse_json(out) or results[-1]
+    return results[0]
+
+
+def summarize_month(con, month: str, settings) -> dict:
+    result = make_summary(con, month, settings)
+    model = llm.model_name(settings, settings["model_summary"])
     con.execute(
         "INSERT OR REPLACE INTO summaries(month,sig,json,model,created) VALUES(?,?,?,?,?)",
         (month, db.month_signature(con, month), json.dumps(result, ensure_ascii=False), model,
