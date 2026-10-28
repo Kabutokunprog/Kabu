@@ -55,7 +55,7 @@ def glossary_notes(words) -> list[str]:
         i = items.get(w)
         if i:
             mark = "" if i.get("confirmed") else "（推測）"
-            out.append(f"「{w}」= {i['meaning']}{mark}")
+            out.append(f"「{w}」= {i.get('private') or i['meaning']}{mark}")
     return out
 
 

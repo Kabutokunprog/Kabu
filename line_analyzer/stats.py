@@ -40,6 +40,7 @@ def monthly(con, start: str | None = None, end: str | None = None) -> dict[str, 
         args.append(end)
     rows = con.execute(q + " ORDER BY date,time,id", args).fetchall()
     gl_terms = glossary.terms_by_category()
+    sexy = glossary.sexy_weights()
 
     acc: dict[str, dict] = defaultdict(lambda: defaultdict(float))
     replies = defaultdict(lambda: defaultdict(list))
@@ -58,6 +59,9 @@ def monthly(con, start: str | None = None, end: str | None = None) -> dict[str, 
         a[f"neg_{role}"] += count_words(r["text"], NEG_WORDS)
         for cat, terms in gl_terms.items():
             a[f"gl_{cat}"] += count_words(r["text"], terms)
+        if r["kind"] == "text":
+            # 色っぽさ = 出てきた言葉のセクシー度の合計
+            a[f"sexy_{role}"] += sum(w for term, w in sexy.items() if term in r["text"])
         h = int(r["time"][:2])
         if h >= 23 or h < 4:
             a["late_night"] += 1
@@ -95,6 +99,7 @@ LABELS = [
     ("reply_min_me", "{me}の返信(中央値・分)"), ("reply_min_partner", "{pa}の返信(中央値・分)"),
     ("love_rate_me", "{me}の愛情表現/100通"), ("love_rate_partner", "{pa}の愛情表現/100通"),
     ("neg_rate_me", "{me}のネガ表現/100通"), ("neg_rate_partner", "{pa}のネガ表現/100通"),
+    ("sexy_me", "{me}の色っぽさ"), ("sexy_partner", "{pa}の色っぽさ"),
     ("calls", "通話回数"), ("call_min", "通話(分)"), ("late_night", "深夜のやりとり"),
 ]
 
@@ -120,7 +125,7 @@ def print_table(stats: dict[str, dict], settings) -> None:
             ("reply_min_me", f"{me}返信分"), ("reply_min_partner", f"{pa}返信分"),
             ("love_rate_me", f"{me}愛%"), ("love_rate_partner", f"{pa}愛%"),
             ("neg_rate_me", f"{me}ネガ%"), ("neg_rate_partner", f"{pa}ネガ%"),
-            ("call_min", "通話分")]
+            ("sexy_me", f"{me}色"), ("sexy_partner", f"{pa}色"), ("call_min", "通話分")]
     print("月      " + " ".join(f"{lab:>8}" for _, lab in cols))
     for mon, s in stats.items():
         cells = []

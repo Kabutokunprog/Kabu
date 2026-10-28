@@ -238,7 +238,8 @@ def cmd_glossary(a):
             print("辞書は空です。`glossary add 言葉 意味 カテゴリ` か `glossary suggest` で追加できます。")
         for i in items:
             mark = "  " if i.get("confirmed") else "？"
-            print(f"{mark} [{i.get('category', 'other'):<9}] {i['term']} = {i['meaning']}")
+            own = f"  （本当の意味: {i['private']}）" if i.get("private") else ""
+            print(f"{mark} [{i.get('category', 'other'):<9}] {i['term']} = {i['meaning']}{own}")
         print(f"\n辞書ファイル: {config.glossary_path()}（テキストエディタで直接直せます）")
     elif a.action == "add":
         if len(a.args) < 2:
@@ -253,6 +254,9 @@ def cmd_glossary(a):
                 i["confirmed"] = True
         glossary.save(items)
         print("確認済みにしました。")
+    elif a.action == "edit":
+        import glossary_web
+        glossary_web.run(db.connect())
     elif a.action == "review":
         items = glossary.load()
         todo = [i for i in items if not i.get("confirmed")]
@@ -479,7 +483,7 @@ def main(argv=None):
     x.set_defaults(func=cmd_correlate)
 
     x = sub.add_parser("glossary", help="二人の言葉（隠語）辞書")
-    x.add_argument("action", choices=["list", "add", "confirm", "review", "suggest"])
+    x.add_argument("action", choices=["list", "edit", "add", "confirm", "review", "suggest"])
     x.add_argument("args", nargs="*")
     x.add_argument("-y", "--yes", action="store_true")
     x.set_defaults(func=cmd_glossary)

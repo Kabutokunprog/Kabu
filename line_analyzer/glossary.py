@@ -1,7 +1,9 @@
 """二人だけの言葉（隠語・あだ名・合言葉）の辞書。
 
 秘密フォルダの glossary.json に保存する。中身は次の形の一覧:
-  {"term": "言葉", "meaning": "意味", "category": "intimacy", "confirmed": true}
+  {"term": "言葉", "meaning": "AIに伝える意味（やわらかめ）", "private": "本当の意味（自分用・AIには送らない）",
+   "category": "intimacy", "importance": 3, "sexy": 0, "confirmed": true}
+importance = 重要度(1〜5、高いものからAIに伝える) / sexy = セクシー度(0〜5、集計の「色っぽさ」に使う)
 category の例: intimacy(性生活) / affection(愛情表現) / nickname(呼び名) /
 place(場所) / health(体調) / other
 """
@@ -45,14 +47,23 @@ def terms_by_category(confirmed_only: bool = False) -> dict[str, list[str]]:
     return dict(out)
 
 
+def sexy_weights() -> dict[str, int]:
+    """セクシー度が1以上の言葉と、その度合い（AI不使用の集計用）。"""
+    return {i["term"]: int(i.get("sexy") or 0) for i in load() if int(i.get("sexy") or 0) > 0}
+
+
 def as_prompt_text() -> str:
-    items = load()
+    """AIに渡す辞書。本当の意味（private）は渡さず、重要度の高い順に並べる。"""
+    items = sorted(load(), key=lambda i: -int(i.get("importance") or 3))
     if not items:
         return "（登録なし）"
     lines = []
     for i in items:
         mark = "" if i.get("confirmed") else "（推測）"
-        lines.append(f"- 「{i['term']}」= {i['meaning']} [{i.get('category', 'other')}]{mark}")
+        extra = f" 重要度{i.get('importance', 3)}"
+        if int(i.get("sexy") or 0):
+            extra += f" 色っぽさ{i['sexy']}/5"
+        lines.append(f"- 「{i['term']}」= {i['meaning']} [{i.get('category', 'other')}{extra}]{mark}")
     return "\n".join(lines)
 
 

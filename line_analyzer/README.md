@@ -90,7 +90,13 @@ python3 la.py glossary suggest     # よく出る言葉から候補をAIに推�
 python3 la.py glossary list        # 一覧（？は推測でまだ未確認のもの）
 python3 la.py glossary confirm ぽんぽこ
 python3 la.py glossary review      # 推測の言葉を1つずつ「正しい／意味を直す／消す」で確認
+python3 la.py glossary edit        # 一覧の画面で、まとめて編集（おすすめ）
 ```
+一覧の画面では、言葉ごとに次の項目を決められます（Mac内だけで動き、外には送りません）。
+- **本当の意味（自分用）**: 直接的な言葉でOK。Macの中だけに保存し、AIには送りません。
+- **AIに伝える意味**: やわらかい言い方。AIにはこちらだけを渡します（直接的すぎるとAIが回答を止めることがあるため）。
+- **重要度**（★1〜5）: 高いものから優先してAIに伝えます。
+- **セクシー度**（0〜5）: 月ごとの集計の「色っぽさ」（言葉のセクシー度の合計）に使います。
 カテゴリ: `intimacy`(性生活) `affection`(愛情表現) `nickname`(呼び名) `place`(場所) `health`(体調) `other`
 要約を作るときにもAIが新しい言葉を見つけると「？（推測）」として自動で辞書に追加されます。
 辞書を直したあと、過去の要約にも反映したいときは `python3 la.py summarize --force`。
