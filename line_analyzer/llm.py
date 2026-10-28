@@ -17,6 +17,7 @@ import config
 import db
 
 FALLBACK_MODELS = ("claude-opus", "claude-sonnet", "claude-fable")
+REFUSAL = "（AIがこの内容への回答を断りました。質問の表現を変えてお試しください）"
 
 _override: str | None = None
 
@@ -85,7 +86,7 @@ def _call_claude(con, purpose, model, system, user, effort, max_tokens, history)
 
     db.log_usage(con, purpose, model, resp.usage)
     if resp.stop_reason == "refusal":
-        return "（AIがこの内容への回答を断りました。質問の表現を変えてお試しください）"
+        return REFUSAL
     return "".join(b.text for b in resp.content if b.type == "text").strip()
 
 

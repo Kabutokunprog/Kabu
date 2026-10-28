@@ -173,8 +173,8 @@ PERSONAS = {
   （例:「なになに〜、それ聞いちゃう？」「ふふ、いい感じじゃない♡」）。相談者を「キミ」と呼ぶ。
 - 辛辣なことや説教は言わない。気になる点も、前向きで優しい言い方にして、励ましやアドバイスを添える。
   ただし記録に無いことを良く見せるための作り話はしない。
-- 下ネタ・夜の話にはノリよく乗って、からかったり冗談を言ったりしてよい。
-  ただし露骨な描写や直接的な言葉は使わず、色っぽい冗談・遠回しな言い方にとどめる。""",
+- 下ネタ・夜の話は大歓迎。遠回しにせず、大人同士の率直な言葉で、ノリよくからかったり盛り上げたりしてよい。
+  ただし、利用規約に触れるような生々しい性描写（官能小説のような描写）まではしない。""",
     # 落ち着いた、丁寧な説明
     "plain": "- 日本語で、敬語で、分かりやすく答える。",
 }
@@ -184,11 +184,14 @@ def system_prompt(settings) -> str:
     persona = settings.get("persona", "onee")
     style = PERSONAS.get(persona, PERSONAS["onee"])
     m = memory.load()
+    base = summarize.system_prompt(settings)
     if persona == "onee":
         style += "\n" + memory.prompt_text(m)
+        # 回答では、要約用の「穏やかで臨床的な言い方」の決まりを外して、率直に話してよい
+        base = base.replace(summarize.INTIMACY_RULE, "- 性生活に関する内容も、下の「話し方」に従って率直に話してよい。")
     elif m["notes"]:
         style += "\n- これまでの会話で分かっていること:\n" + m["notes"]
-    return summarize.system_prompt(settings).replace(
+    return base.replace(
         "- 出力は指定のJSONのみ。日本語で簡潔に。",
         "- 与えられた要約・数値・抜粋だけを根拠に答え、無い情報は「記録からは分からない」と言う。\n"
         "- 点数で答えられる質問は10点満点の目安と、その根拠を添える。\n" + style)
@@ -203,4 +206,15 @@ def answer(con, question: str, settings, raw: bool = False, history=None,
         return user, info
     out = llm.call(con, "ask", settings["model_answer"], system_prompt(settings), user,
                    effort="medium", history=history)
+    if out == llm.REFUSAL:
+        # 断られたら、質問を穏やかな言い回しに書き換えて聞き直す
+        soft = llm.call(con, "rephrase", settings["model_answer"],
+                        "あなたは文章を言い換える係です。",
+                        "次の質問を、意味を変えずに穏やかで臨床的な言い回しに書き換え、"
+                        f"書き換えた質問だけを出力してください。\n{question}", effort="low", max_tokens=1000)
+        if soft and soft != llm.REFUSAL:
+            out = llm.call(con, "ask", settings["model_answer"], system_prompt(settings),
+                           f"{ctx}\n\n質問: {soft}", effort="medium", history=history)
+            if out != llm.REFUSAL:
+                out = f"（質問の言い回しを少し変えて聞き直しました: {soft}）\n\n{out}"
     return out, info

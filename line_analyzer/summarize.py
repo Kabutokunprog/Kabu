@@ -49,6 +49,10 @@ def compact_transcript(con, start_date: str, end_date: str, settings) -> list[tu
     return [(d, "\n".join(ls)) for d, ls in days]
 
 
+INTIMACY_RULE = """- 性生活に関する内容は、露骨な描写をせず、穏やかで臨床的な言い方で記述する
+  （例:「深いつながりを好む傾向」「満足している様子」「頻度が減っている」）。"""
+
+
 def system_prompt(settings) -> str:
     me, pa = settings["me_label"], settings["partner_label"]
     return f"""あなたは恋愛関係のカウンセラー兼データアナリストです。
@@ -63,8 +67,7 @@ def system_prompt(settings) -> str:
 
 ルール:
 - 推測は根拠（言動）に基づき、断定しすぎない。
-- 性生活に関する内容は、露骨な描写をせず、穏やかで臨床的な言い方で記述する
-  （例:「深いつながりを好む傾向」「満足している様子」「頻度が減っている」）。
+{INTIMACY_RULE}
 - 体調・痛み・生理などの記録が与えられたら、会話との関係（気遣い、気分の変化等）も見る。
 - 出力は指定のJSONのみ。日本語で簡潔に。"""
 
