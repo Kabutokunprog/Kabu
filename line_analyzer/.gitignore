@@ -1,0 +1,10 @@
+# 会話データ・記録・分析結果は絶対にGitHubへ上げない
+*.txt
+!requirements.txt
+*.csv
+*.db
+*.sqlite
+*.json
+reports/
+.line_analyzer_private/
+__pycache__/
