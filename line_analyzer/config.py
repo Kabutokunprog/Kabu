@@ -19,6 +19,8 @@ DEFAULT_SETTINGS = {
     # 分析結果での呼び方
     "me_label": "彼",
     "partner_label": "彼女",
+    # 質問への回答の話し方: "onee"（ノリの良い色っぽいお姉さん） / "plain"（丁寧な説明）
+    "persona": "onee",
     # 使うAI: "ollama"（Mac内のAI・オフライン・無料） / "claude"（Claude API・有料）
     "backend": "ollama",
     # 使うClaudeのモデル（費用を抑えたい場合は summary を claude-haiku-5-5 に）

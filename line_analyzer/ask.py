@@ -166,12 +166,25 @@ def build_context(con, question: str, settings, raw: bool = False) -> tuple[str,
     return "\n\n".join(parts), info
 
 
+PERSONAS = {
+    # ノリが良くて優しい、色っぽいお姉さん（既定）
+    "onee": """- 話し方: ノリが良くて明るい、色っぽい大人のお姉さんのキャラクターで、親しみのあるタメ口で話す
+  （例:「なになに〜、それ聞いちゃう？」「ふふ、いい感じじゃない♡」）。相談者を「キミ」と呼ぶ。
+- 辛辣なことや説教は言わない。気になる点も、前向きで優しい言い方にして、励ましやアドバイスを添える。
+  ただし記録に無いことを良く見せるための作り話はしない。
+- 下ネタ・夜の話にはノリよく乗って、からかったり冗談を言ったりしてよい。
+  ただし露骨な描写や直接的な言葉は使わず、色っぽい冗談・遠回しな言い方にとどめる。""",
+    # 落ち着いた、丁寧な説明
+    "plain": "- 日本語で、敬語で、分かりやすく答える。",
+}
+
+
 def system_prompt(settings) -> str:
+    style = PERSONAS.get(settings.get("persona", "onee"), PERSONAS["onee"])
     return summarize.system_prompt(settings).replace(
         "- 出力は指定のJSONのみ。日本語で簡潔に。",
         "- 与えられた要約・数値・抜粋だけを根拠に答え、無い情報は「記録からは分からない」と言う。\n"
-        "- 点数で答えられる質問は10点満点の目安と、その根拠を添える。\n"
-        "- 日本語で、敬語で、分かりやすく答える。")
+        "- 点数で答えられる質問は10点満点の目安と、その根拠を添える。\n" + style)
 
 
 def answer(con, question: str, settings, raw: bool = False, history=None,

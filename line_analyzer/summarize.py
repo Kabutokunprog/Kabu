@@ -140,12 +140,27 @@ def make_summary(con, month: str, settings) -> dict:
         out = llm.call(con, f"summary {month}", model, system, req, effort="low", max_tokens=8000,
                        json_mode=True)
         results.append(llm.parse_json(out) or {"overview": out})
-    if len(results) > 1:
-        merge_req = (f"対象期間: {month}。以下は同じ月を分割して要約した結果です。"
-                     f"1つに統合してください。\n{json.dumps(results, ensure_ascii=False)}\n\n{JSON_SPEC}")
-        out = llm.call(con, f"merge {month}", model, system, merge_req, effort="low", max_tokens=8000,
-                       json_mode=True)
-        return llm.parse_json(out) or results[-1]
+    # 分割した結果を統合する。一度に読める量を超えないよう、少しずつ段階的にまとめる
+    limit = llm.chunk_chars(settings)
+    while len(results) > 1:
+        groups, cur = [], []
+        for r in results:
+            if len(cur) >= 2 and len(json.dumps(cur + [r], ensure_ascii=False)) > limit:
+                groups.append(cur)
+                cur = []
+            cur.append(r)
+        groups.append(cur)
+        merged = []
+        for g in groups:
+            if len(g) == 1:
+                merged.append(g[0])
+                continue
+            merge_req = (f"対象期間: {month}。以下は同じ月を分割して要約した結果です（時間順）。"
+                         f"1つに統合してください。\n{json.dumps(g, ensure_ascii=False)}\n\n{JSON_SPEC}")
+            out = llm.call(con, f"merge {month}", model, system, merge_req, effort="low", max_tokens=8000,
+                           json_mode=True)
+            merged.append(llm.parse_json(out) or g[-1])
+        results = merged
     return results[0]
 
 
