@@ -89,6 +89,7 @@ python3 la.py glossary add "ぽんぽこ" "夜の営みのこと" intimacy
 python3 la.py glossary suggest     # よく出る言葉から候補をAIに推測してもらう
 python3 la.py glossary list        # 一覧（？は推測でまだ未確認のもの）
 python3 la.py glossary confirm ぽんぽこ
+python3 la.py glossary review      # 推測の言葉を1つずつ「正しい／意味を直す／消す」で確認
 ```
 カテゴリ: `intimacy`(性生活) `affection`(愛情表現) `nickname`(呼び名) `place`(場所) `health`(体調) `other`
 要約を作るときにもAIが新しい言葉を見つけると「？（推測）」として自動で辞書に追加されます。

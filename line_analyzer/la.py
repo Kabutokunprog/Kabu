@@ -253,6 +253,30 @@ def cmd_glossary(a):
                 i["confirmed"] = True
         glossary.save(items)
         print("確認済みにしました。")
+    elif a.action == "review":
+        items = glossary.load()
+        todo = [i for i in items if not i.get("confirmed")]
+        if not todo:
+            print("確認待ちの言葉はありません。")
+            return
+        print(f"確認待ちの言葉が{len(todo)}個あります。1つずつ答えてください。")
+        print("  Enter = 正しい / 正しい意味を入力 = 意味を直す / d = 消す / s = あとで / q = やめる\n")
+        drop = set()
+        for n, i in enumerate(todo, 1):
+            print(f"[{n}/{len(todo)}] 「{i['term']}」 = {i['meaning']}  （{i.get('category', 'other')}）")
+            ans = input("  → ").strip()
+            if ans.lower() == "q":
+                break
+            if ans.lower() == "s":
+                continue
+            if ans.lower() == "d":
+                drop.add(i["term"])
+                continue
+            if ans:
+                i["meaning"] = ans
+            i["confirmed"] = True
+        glossary.save([i for i in items if i["term"] not in drop])
+        print("\n保存しました。過去の要約にも反映したいときは `summarize --force` を実行してください。")
     elif a.action == "suggest":
         s = config.load_settings()
         con = db.connect()
@@ -455,7 +479,7 @@ def main(argv=None):
     x.set_defaults(func=cmd_correlate)
 
     x = sub.add_parser("glossary", help="二人の言葉（隠語）辞書")
-    x.add_argument("action", choices=["list", "add", "confirm", "suggest"])
+    x.add_argument("action", choices=["list", "add", "confirm", "review", "suggest"])
     x.add_argument("args", nargs="*")
     x.add_argument("-y", "--yes", action="store_true")
     x.set_defaults(func=cmd_glossary)
