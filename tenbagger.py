@@ -186,6 +186,7 @@ def _price_history(tickers):
 PEG_GROWTH_CAP = 100   # PEG 計算に使う増益率の上限（%）。前年が小さすぎる反動の異常値対策
 PEG_MAX_PER = 40       # これより PER が高い株は PEG の加点なし
 SPIKE_GROWTH = 200     # 増益率がこれを超えたら「一時的な急増?」の目印を出す
+CASH_RICH_RATIO = 50   # ネットキャッシュ比率がこれ以上（%）かつ PBR1倍割れで「💰現金たっぷりで割安」
 DIP_MIN_RET_2Y = 50    # 押し目の加点は、2年でこれ以上（%）上がっている上昇トレンドの株だけ
 
 # 採点ルール: (項目名, 指標キー, [(条件, 点数, 説明), ...]) を上から順に判定し、最初に当てはまったものを採用
@@ -229,6 +230,11 @@ RULES = [
     ("オーナー", "insider", [
         (lambda v: v >= 20, 5, "経営陣保有20%以上"),
     ]),
+    ("現金", "net_cash_ratio", [
+        (lambda v: v >= 100, 10, "ネットキャッシュが時価総額以上"),
+        (lambda v: v >= 50, 5, "ネットキャッシュが時価総額の50%以上"),
+        (lambda v: v <= -50, -5, "借金（ネット）が時価総額の50%超"),
+    ]),
 ]
 
 
@@ -258,6 +264,8 @@ def score_stock(m):
     signals = []
     if not np.isnan(m["pbr"]) and m["pbr"] <= 1.0:
         signals.append(("🔴PBR1倍割れ", "sig-red"))
+        if not np.isnan(m["net_cash_ratio"]) and m["net_cash_ratio"] >= CASH_RICH_RATIO:
+            signals.append(("💰現金たっぷりで割安", "sig-gold"))
     if any(l == "押し目" for l, _, _ in breakdown):
         signals.append(("🟡高値から急落", "sig-yellow"))
     if not np.isnan(m["earn_growth"]) and m["earn_growth"] > SPIKE_GROWTH:
@@ -268,6 +276,18 @@ def score_stock(m):
         elif m["ret_2y"] >= 300:
             signals.append(("⚠️2年で4倍超", "sig-gray"))
     return score, breakdown, signals
+
+
+def _cash_metrics(info):
+    """現金・ネットキャッシュ（現金 − 有利子負債）・ネットキャッシュ比率（÷時価総額）"""
+    cash = _num(info.get("totalCash")) / 1e8
+    debt = _num(info.get("totalDebt")) / 1e8
+    if not np.isnan(cash) and np.isnan(debt):
+        debt = 0.0  # 借入金がない会社は totalDebt が空のことがある
+    net = cash - debt
+    cap = _num(info.get("marketCap")) / 1e8
+    ratio = net / cap * 100 if cap and not np.isnan(cap) else np.nan
+    return {"cash_oku": cash, "net_cash_oku": net, "net_cash_ratio": ratio}
 
 
 def collect(extra_tickers):
@@ -327,6 +347,7 @@ def collect(extra_tickers):
             "rev_growth": _num(info.get("revenueGrowth")) * 100,
             "earn_growth": earn_growth,
             "insider": _num(info.get("heldPercentInsiders")) * 100,
+            **_cash_metrics(info),
         }
         score, breakdown, signals = score_stock(m)
         rows.append({"code": t.replace(".T", ""), "name": name, "theme": theme,
@@ -347,7 +368,9 @@ def _fmt(v, digits=1, suffix="", sign=False):
 COPY_COLUMNS = [
     ("本日", "day_chg", 1, "%", True), ("高値から", "from_high", 1, "%", False),
     ("2年上昇", "ret_2y", 0, "%", True), ("時価総額(億)", "cap_oku", 0, "", False),
-    ("PER", "per", 1, "", False), ("PBR", "pbr", 2, "", False), ("PEG", "peg", 2, "", False),
+    ("PER", "per", 1, "", False), ("PBR", "pbr", 2, "", False),
+    ("現金(億)", "cash_oku", 0, "", False), ("ネットキャッシュ(億)", "net_cash_oku", 0, "", True),
+    ("現金比率", "net_cash_ratio", 0, "%", True), ("PEG", "peg", 2, "", False),
     ("営業利益率", "op_margin", 1, "%", False), ("増収率", "rev_growth", 1, "%", True),
     ("増益率", "earn_growth", 1, "%", True), ("経営陣保有", "insider", 1, "%", False),
 ]
@@ -424,6 +447,7 @@ HTML = """
   .sig-red { background: #fee2e2; color: #b91c1c; }
   .sig-yellow { background: #fef9c3; color: #a16207; }
   .sig-green { background: #dcfce7; color: #15803d; }
+  .sig-gold { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
   .sig-gray { background: #f1f5f9; color: #475569; }
   .pt { display: inline-block; padding: 1px 4px; border-radius: 3px; font-size: 9px; margin: 1px; }
   .pt-plus { background: #eff6ff; color: #1e40af; }
@@ -462,6 +486,7 @@ HTML = """
     <div class="filters">
       <label><input type="checkbox" id="fCap" onchange="applyFilter()"> 時価総額1,000億円以下だけ</label>
       <label><input type="checkbox" id="fSig" onchange="applyFilter()"> シグナルありだけ</label>
+      <label><input type="checkbox" id="fCash" onchange="applyFilter()"> 現金比率50%以上だけ</label>
     </div>
   </div>
 
@@ -482,16 +507,19 @@ HTML = """
           <th onclick="sortTable(10)">時価総額(億) ↕</th>
           <th onclick="sortTable(11)">PER ↕</th>
           <th onclick="sortTable(12)">PBR ↕</th>
-          <th onclick="sortTable(13)">PEG ↕</th>
-          <th onclick="sortTable(14)">営業利益率 ↕</th>
-          <th onclick="sortTable(15)">増収率 ↕</th>
-          <th onclick="sortTable(16)">増益率 ↕</th>
-          <th onclick="sortTable(17)">経営陣保有 ↕</th>
+          <th onclick="sortTable(13)">現金(億) ↕</th>
+          <th onclick="sortTable(14)">ネットキャッシュ(億) ↕</th>
+          <th onclick="sortTable(15)">現金比率 ↕</th>
+          <th onclick="sortTable(16)">PEG ↕</th>
+          <th onclick="sortTable(17)">営業利益率 ↕</th>
+          <th onclick="sortTable(18)">増収率 ↕</th>
+          <th onclick="sortTable(19)">増益率 ↕</th>
+          <th onclick="sortTable(20)">経営陣保有 ↕</th>
         </tr>
       </thead>
       <tbody>
       {% for r in rows %}
-        <tr data-cap="{{ r['cap_oku'] if r['cap_oku'] == r['cap_oku'] else '' }}" data-sig="{{ r['signals']|length }}">
+        <tr data-cap="{{ r['cap_oku'] if r['cap_oku'] == r['cap_oku'] else '' }}" data-sig="{{ r['signals']|length }}" data-cash="{{ r['net_cash_ratio'] if r['net_cash_ratio'] == r['net_cash_ratio'] else '' }}">
           <td>{{ loop.index }}</td>
           <td class="fixed-name">{{ r['name'] }} <span class="code">{{ r['code'] }}</span></td>
           <td class="{% if r['score'] >= 60 %}high-score{% elif r['score'] <= 25 %}low-score{% endif %}">{{ r['score'] }}点</td>
@@ -505,6 +533,9 @@ HTML = """
           <td class="{% if r['cap_oku'] <= 1000 %}good{% endif %}">{{ fmt(r['cap_oku'], 0) }}</td>
           <td>{{ fmt(r['per'], 1) }}</td>
           <td class="{% if r['pbr'] <= 1 %}good{% endif %}">{{ fmt(r['pbr'], 2) }}</td>
+          <td>{{ fmt(r['cash_oku'], 0) }}</td>
+          <td class="{% if r['net_cash_oku'] < 0 %}down{% endif %}">{{ fmt(r['net_cash_oku'], 0, '', True) }}</td>
+          <td class="{% if r['net_cash_ratio'] >= 50 %}good{% elif r['net_cash_ratio'] < 0 %}down{% endif %}">{{ fmt(r['net_cash_ratio'], 0, '%', True) }}</td>
           <td class="{% if r['peg'] <= 1 %}good{% endif %}">{{ fmt(r['peg'], 2) }}</td>
           <td class="{% if r['op_margin'] >= 10 %}good{% endif %}">{{ fmt(r['op_margin'], 1, '%') }}</td>
           <td>{{ fmt(r['rev_growth'], 1, '%', True) }}</td>
@@ -557,7 +588,7 @@ HTML = """
       {% endfor %}{% endfor %}
       </tbody>
     </table>
-    <p>満点の目安：小型20＋増収15＋増益10＋利益率15＋PEG15＋PBR10＋（出遅れ10 または 押し目10）＋オーナー5 ＝ 100点。出遅れ（2年+50%以下）と押し目（2年+50%以上）は同時には付かない。60点以上を緑、25点以下を赤で表示。</p>
+    <p>満点の目安：小型20＋増収15＋増益10＋利益率15＋PEG15＋PBR10＋（出遅れ10 または 押し目10）＋オーナー5＋現金10 ＝ 110点（上限100点）。出遅れ（2年+50%以下）と押し目（2年+50%以上）は同時には付かない。60点以上を緑、25点以下を赤で表示。</p>
 
     <h4>📐 各指標の計算式</h4>
     <div class="formula">本日        ＝ (現在の株価 ÷ 前日の終値 − 1) × 100
@@ -570,7 +601,11 @@ PEG         ＝ PER ÷ 増益率（%、最大100%）   … 1以下なら「成�
 営業利益率  ＝ 営業利益 ÷ 売上高 × 100（直近1年）
 増収率      ＝ 直近四半期の売上 ÷ 前年同期の売上 − 1
 増益率      ＝ 直近四半期の利益 ÷ 前年同期の利益 − 1
-経営陣保有  ＝ 経営陣・関係者が持つ株の割合</div>
+経営陣保有  ＝ 経営陣・関係者が持つ株の割合
+現金        ＝ 現金・預金と短期の投資（億円）
+ネットキャッシュ ＝ 現金 − 有利子負債（借入金・社債など）   … プラスなら「実質無借金」
+現金比率    ＝ ネットキャッシュ ÷ 時価総額 × 100
+              … 100%以上なら「会社を丸ごと買っても、手元の現金だけで元が取れる」水準</div>
     <p>各銘柄の「点数の内訳」にカーソルを合わせる（スマホは長押し）と、当てはまった条件が表示されます。</p>
     <p>データ元：Yahoo!ファイナンス（株価は約20分遅れ、財務は最新の決算を反映）。</p>
     <p>※銘柄選びの補助ツールです。数値は必ず決算短信などでご確認のうえ、投資判断はご自身で行ってください。</p>
@@ -605,11 +640,13 @@ PEG         ＝ PER ÷ 増益率（%、最大100%）   … 1以下なら「成�
   function applyFilter() {
     var cap = document.getElementById("fCap").checked;
     var sig = document.getElementById("fSig").checked;
+    var cash = document.getElementById("fCash").checked;
     document.querySelectorAll("#tbTable tbody tr").forEach(function(tr) {
       var c = parseFloat(tr.dataset.cap);
       var show = true;
       if (cap && !(c <= 1000)) show = false;
       if (sig && tr.dataset.sig === "0") show = false;
+      if (cash && !(parseFloat(tr.dataset.cash) >= 50)) show = false;
       tr.style.display = show ? "" : "none";
     });
   }
