@@ -30,6 +30,7 @@ header.top .wrap{display:flex;align-items:center;gap:10px}
 header.top h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.04em;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who{background:rgba(255,255,255,.14);border:0;color:#fff;border-radius:999px;padding:5px 12px;font-size:14px;white-space:nowrap}
 main{padding:16px 0 110px}
+#updBar{position:sticky;top:calc(env(safe-area-inset-top) + 50px);z-index:21;background:#1f9d63;color:#fff;font-size:14px;font-weight:700;padding:9px 16px;cursor:pointer;text-align:center}
 #jobBar{position:sticky;top:calc(env(safe-area-inset-top) + 50px);z-index:19;background:var(--accent-soft);border-bottom:1px solid #ffd9c7}
 #jobBar button{width:100%;border:0;background:none;padding:9px 0;display:flex;justify-content:space-between;gap:8px;font-size:14px;font-weight:700;color:#a3431b;text-align:left}
 nav.tabs{position:fixed;bottom:0;left:0;right:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);
@@ -162,6 +163,7 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
   </div>
 </header>
 
+<div id="updBar" class="hidden" onclick="doUpdate()">🆕 アプリの新しい版があります。ここをタップで更新（答えた分は残ります）</div>
 <div id="jobBar" class="hidden"></div>
 <main><div class="wrap" id="view"></div></main>
 
@@ -549,8 +551,12 @@ function editDeck(){
     <div class="row" style="margin-top:14px"><button class="btn ghost grow" onclick="closeModal()">やめる</button><button class="btn primary grow" onclick="saveDeck()">保存</button></div>`);
 }
 async function saveDeck(){
-  try{ await api('update_deck',{deck_id:S.deck.id,title:$('#edT').value||'無題の教材',grade:$('#edG').value,term:$('#edM').value,subject:$('#edS').value,card_kind:$('#edK').value,profile_id:+$('#edP').value});
-    closeModal(); toast('保存しました'); +$('#edP').value!==S.profile.id?showTab('decks'):openDeck(S.deck.id) }catch(e){toast(e.message)}
+  const data={deck_id:S.deck.id,title:$('#edT').value.trim()||'無題の教材',grade:$('#edG').value,term:$('#edM').value,subject:$('#edS').value,card_kind:$('#edK').value,profile_id:+$('#edP').value};
+  try{ await api('update_deck',data);
+    closeModal();
+    if(data.profile_id!==S.profile.id){ const to=S.profiles.find(p=>p.id===data.profile_id); toast(`保存しました（${to?to.name:'ほかの人'}の教材に移しました）`,3500); showTab('decks') }
+    else { toast('保存しました'); openDeck(S.deck.id) }
+  }catch(e){toast(e.message)}
 }
 async function reorderDeck(){
   if(!confirm('AIが読み取った教材の内容を見て、カードをプリントの順番に並べ直し、歴史なら西暦の目安も付けます（30秒ほど）。よろしいですか？')) return;
@@ -1146,6 +1152,27 @@ async function changePass(){
   const v=$('#np').value; if(v.length<6) return toast('6文字以上にしてください');
   try{ await api('change_pass',{new_pass:v}); S.pass=v; lsSet('flash_pass',v); $('#np').value=''; toast('変更しました') }catch(e){toast(e.message)}
 }
+
+// ---- 新しい版が公開されたら自動で切り替える (古い画面のまま使い続けないように)
+let pageHash=null, updateReady=false;
+async function fetchPageHash(){
+  try{ const r=await fetch(location.pathname+'?v='+Date.now(),{cache:'no-store'}); if(!r.ok) return null;
+    const t=await r.text(); let h=0; for(let i=0;i<t.length;i++){h=(h*31+t.charCodeAt(i))|0} return h }catch(e){ return null }
+}
+function busy(){return !!(ST||S.taking||(S.jobs||[]).some(j=>!['done','error'].includes(j.step))||$('#modalRoot').innerHTML)}
+async function checkUpdate(){
+  const h=await fetchPageHash(); if(h==null) return;
+  if(pageHash==null){pageHash=h;return}
+  if(h!==pageHash){
+    updateReady=true;
+    if(!busy()) return location.reload();
+    const b=$('#updBar'); b.classList.remove('hidden');
+  }
+}
+function doUpdate(){ if(ST) keepPending(); location.reload() }
+setInterval(checkUpdate,120000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')checkUpdate()});
+setTimeout(checkUpdate,3000);
 
 // 前回の人で開き直す
 (async()=>{
