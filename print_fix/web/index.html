@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>くっきり印刷</title>
+<style>
+/* レイアウト: 上から「1 開く → 2 解析 → 3 印刷設定 → 4 印刷」の順に並ぶ一列の作業台 */
+:root{
+  --bg:#f6f7f9; --panel:#ffffff; --fg:#16202b; --muted:#5b6876; --line:#dde2e8;
+  --accent:#0b6e8a; --accent-fg:#ffffff; --accent-soft:#e3f1f5;
+  --ok:#1d7a46; --warn:#a86400; --bad:#b3261e;
+  --font:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Yu Gothic",Meiryo,system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#11161c; --panel:#1a2129; --fg:#e8edf2; --muted:#9aa7b4; --line:#2c3642;
+  --accent:#4fb3cf; --accent-fg:#0b1a20; --accent-soft:#16313a;
+  --ok:#5cc98a; --warn:#e6a54a; --bad:#ef7b72; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:15px;line-height:1.7;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 64px}
+.wrap{max-width:880px;margin:0 auto;display:grid;gap:20px}
+h1{font-size:1.6rem;margin:0;letter-spacing:.02em}
+.lead{color:var(--muted);margin:4px 0 0}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:grid;gap:12px;min-width:0}
+section[aria-disabled="true"]{opacity:.45;pointer-events:none}
+h2{font-size:1.1rem;margin:0;display:flex;gap:10px;align-items:center}
+h2 .n{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-size:.85rem}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:28px 16px;text-align:center;cursor:pointer}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop input{display:none}
+.btn{appearance:none;border:1px solid var(--accent);background:var(--accent);color:var(--accent-fg);font:inherit;font-weight:700;
+  padding:10px 18px;border-radius:8px;cursor:pointer}
+.btn.sub{background:transparent;color:var(--accent)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.muted{color:var(--muted);font-size:.9rem}
+.summary{padding:10px 14px;border-radius:8px;background:var(--accent-soft)}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
+.thumb{display:grid;gap:4px;font-size:.8rem;cursor:pointer}
+.thumb canvas{width:100%;height:auto;border:1px solid var(--line);background:#fff;border-radius:4px}
+.thumb.sel canvas{outline:3px solid var(--accent)}
+.thumb label{display:flex;gap:6px;align-items:center}
+.pill{display:inline-block;padding:0 8px;border-radius:999px;font-size:.75rem;font-weight:700;border:1px solid currentColor}
+.r0{color:var(--ok)} .r1{color:var(--warn)} .r2{color:var(--bad)}
+.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.field{display:grid;gap:4px}
+.field b{font-size:.9rem}
+select{font:inherit;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.compare figure{margin:0;display:grid;gap:4px;min-width:0}
+.compare figcaption{font-size:.85rem;color:var(--muted)}
+.compare canvas{width:100%;height:auto;border:1px solid var(--line);background:#fff;border-radius:4px}
+.sheet{max-width:420px;width:100%;border:1px solid var(--line);background:#fff;border-radius:4px}
+progress{width:100%;height:10px}
+.err{color:var(--bad);font-weight:700}
+ol.tips{margin:0;padding-left:1.3em}
+@media (max-width:520px){.compare{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>くっきり印刷</h1>
+    <p class="lead">スキャンしたPDFの文字だけを濃く・少し太くして、レーザープリンタでかすれにくくします。2ページをA4の1枚にまとめる「2アップ」にもできます。PDFはこの端末の中だけで処理され、どこにも送られません。</p>
+  </header>
+
+  <section id="s1">
+    <h2><span class="n">1</span>PDFを開く</h2>
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept="application/pdf,.pdf">
+      <div><b>ここをタップしてPDFを選ぶ</b><br><span class="muted">またはPDFをここにドラッグ</span></div>
+    </label>
+    <div id="fileinfo" class="muted"></div>
+  </section>
+
+  <section id="s2" aria-disabled="true">
+    <h2><span class="n">2</span>解析</h2>
+    <progress id="aprog" value="0" max="1" hidden></progress>
+    <div id="asummary" class="summary" hidden></div>
+    <p class="muted">印刷するページにチェックを入れてください。ページをタップすると、下の「仕上がり見本」に表示されます。</p>
+    <div class="row">
+      <button class="btn sub" id="selAll" type="button">全部選ぶ</button>
+      <button class="btn sub" id="selNone" type="button">全部外す</button>
+    </div>
+    <div id="thumbs" class="thumbs"></div>
+  </section>
+
+  <section id="s3" aria-disabled="true">
+    <h2><span class="n">3</span>印刷設定</h2>
+    <div class="settings">
+      <div class="field"><b>レイアウト</b>
+        <select id="layout">
+          <option value="2">2アップ(A4横に2ページ)</option>
+          <option value="1">1ページずつ(A4縦)</option>
+        </select></div>
+      <div class="field"><b>余白</b>
+        <select id="trim">
+          <option value="1">余白をカットして文字を大きく</option>
+          <option value="0">元のまま</option>
+        </select></div>
+      <div class="field"><b>文字の太さ</b>
+        <select id="bold">
+          <option value="0">太らせない</option>
+          <option value="1" selected>少し太く</option>
+          <option value="2">もっと太く</option>
+        </select></div>
+      <div class="field"><b>色のついた文字</b>
+        <select id="color">
+          <option value="black">黒にする(白黒プリンタ向け)</option>
+          <option value="keep">濃い色で残す(カラープリンタ向け)</option>
+        </select></div>
+      <div class="field"><b>画質</b>
+        <select id="dpi">
+          <option value="400">標準(スマホでも軽い)</option>
+          <option value="600">高画質(パソコン向け)</option>
+        </select></div>
+    </div>
+
+    <h3 style="margin:8px 0 0;font-size:1rem">仕上がり見本 <span id="pvpage" class="muted"></span></h3>
+    <div class="compare">
+      <figure><canvas id="pvBefore"></canvas><figcaption>元のPDF</figcaption></figure>
+      <figure><canvas id="pvAfter"></canvas><figcaption>補正後</figcaption></figure>
+    </div>
+    <div class="field"><b>用紙1枚目のイメージ</b><canvas id="sheet" class="sheet"></canvas></div>
+  </section>
+
+  <section id="s4" aria-disabled="true">
+    <h2><span class="n">4</span>印刷する</h2>
+    <div class="row">
+      <button class="btn" id="make" type="button">印刷用PDFを作る</button>
+      <span id="mkinfo" class="muted"></span>
+    </div>
+    <progress id="mprog" value="0" max="1" hidden></progress>
+    <div class="row" id="outBtns" hidden>
+      <button class="btn" id="print" type="button">印刷する</button>
+      <a class="btn sub" id="save" download="kukkiri.pdf" href="#">PDFを保存</a>
+      <a class="btn sub" id="openTab" target="_blank" rel="noopener" href="#">別のタブで開く</a>
+    </div>
+    <ol class="tips muted">
+      <li>印刷画面では「用紙に合わせる」または「実際のサイズ(100%)」を選び、用紙はA4にしてください。</li>
+      <li>プリンタの「トナー節約」や「ドラフト(下書き)」がオンだと薄くなります。オフにしてください。</li>
+      <li>スマホで「印刷する」が効かないときは「別のタブで開く」から、共有ボタン → プリントを使ってください。</li>
+    </ol>
+  </section>
+</div>
+
+<script src="lib/pdf.min.js"></script>
+<script src="lib/pdf-lib.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "lib/pdf.worker.min.js";
+const $ = id => document.getElementById(id);
+const S = { pdf:null, name:"", pages:[], sel:0, outUrl:null };
+const A4 = { w:595.28, h:841.89 };
+const ANALYZE_DPI = 150;
+
+/* ---------- 画像処理(Python版 scan_print_fix.py と同じ考え方) ---------- */
+function luminance(data, N){
+  const L = new Uint8ClampedArray(N);
+  for (let i=0,j=0;i<N;i++,j+=4) L[i] = (data[j]*299 + data[j+1]*587 + data[j+2]*114)/1000;
+  return L;
+}
+// 半径 r の四角い範囲での最小値/最大値(縦横に分けて、範囲の大きさによらず速く計算)
+function rankFilter(src, w, h, r, isMax){
+  const k=2*r+1, tmp=new Uint8ClampedArray(w*h), out=new Uint8ClampedArray(w*h), pad=isMax?0:255;
+  const pass=(inp,outp,len,count,stride,step)=>{
+    const n=len+2*r, g=new Uint8Array(n), hh=new Uint8Array(n), line=new Uint8Array(n);
+    for (let i=0;i<count;i++){ const base=i*stride;
+      for (let j=0;j<n;j++){ const s=j-r; line[j]=(s<0||s>=len)?pad:inp[base+s*step]; }
+      for (let j=0;j<n;j++){ const v=line[j]; g[j]=(j%k===0)?v:(isMax?(g[j-1]>v?g[j-1]:v):(g[j-1]<v?g[j-1]:v)); }
+      for (let j=n-1;j>=0;j--){ const v=line[j]; hh[j]=(j===n-1||(j+1)%k===0)?v:(isMax?(hh[j+1]>v?hh[j+1]:v):(hh[j+1]<v?hh[j+1]:v)); }
+      for (let x=0;x<len;x++){ const a=hh[x], b=g[x+2*r]; outp[base+x*step]=isMax?(a>b?a:b):(a<b?a:b); }
+    } };
+  pass(src,tmp,w,h,w,1); pass(tmp,out,h,w,1,w);
+  return out;
+}
+// 「まわりの紙の明るさ」: 細い線(文字)を消した画像。
+// 太さ約1.6mmより細い暗い所は消え、原子の玉や塗りの図のような大きい所は残る。
+function backgroundMap(L, w, h, dpi){
+  const r = Math.max(3, Math.round(0.8/25.4*dpi));
+  return rankFilter(rankFilter(L, w, h, r, true), w, h, r, false);
+}
+// dpi: この画像が印刷される細かさ(線の太さをミリで考えるため)
+function enhance(img, dpi, bold, colorMode){
+  const {width:w, height:h, data} = img, N=w*h;
+  const L = luminance(data, N);
+  const bg = backgroundMap(L, w, h, dpi);
+  const nl = new Uint8ClampedArray(N), T = new Float32Array(N);
+  const D0=35, D1=110;
+  for (let i=0;i<N;i++){
+    const d = bg[i]-L[i];
+    let t = (d-D0)/(D1-D0); t = t<0?0:t>1?1:t; t = t*t*(3-2*t);
+    T[i]=t; nl[i] = L[i]*(1-0.85*t);           // まわりより暗い所だけ、黒へ寄せる
+  }
+  if (bold>0){
+    const r = Math.max(1, Math.round(bold*dpi/600));
+    const thick = rankFilter(nl, w, h, r, false);
+    const m0 = new Uint8ClampedArray(N); for (let i=0;i<N;i++) m0[i] = T[i]>0.5 ? 255 : 0;
+    const mask = rankFilter(m0, w, h, r, true);
+    for (let i=0;i<N;i++) if (mask[i]){ const v=0.6*thick[i]+0.4*nl[i]; if (v<nl[i]) nl[i]=v; }
+  }
+  for (let i=0,j=0;i<N;i++,j+=4){
+    const r=data[j], g=data[j+1], b=data[j+2], l=L[i], n=nl[i];
+    if (colorMode==="black"){
+      const wt = Math.min(1, T[i]*1.5);
+      data[j]  =Math.min(r, r*(1-wt)+n*wt);
+      data[j+1]=Math.min(g, g*(1-wt)+n*wt);
+      data[j+2]=Math.min(b, b*(1-wt)+n*wt);
+    } else {
+      const sat = Math.max(r,g,b)-Math.min(r,g,b);
+      let c = (sat-40)/40; c = c<0?0:c>1?1:c;
+      const fl = n*(1-c) + Math.max(n, Math.min(l,40))*c;
+      const ratio = l>1 ? fl/l : 1;
+      data[j]=r*ratio; data[j+1]=g*ratio; data[j+2]=b*ratio;
+    }
+  }
+  return img;
+}
+
+/* ---------- 解析 ---------- */
+function analyzeCanvas(ctx, w, h){
+  const d = ctx.getImageData(0,0,w,h).data, N=w*h;
+  const L = luminance(d, N), mn = rankFilter(L, w, h, 1, false);
+  let cores=0, light=0, colored=0, ink=0;
+  const colCnt=new Uint32Array(w), rowCnt=new Uint32Array(h);
+  for (let y=0;y<h;y++) for (let x=0;x<w;x++){ const i=y*w+x, l=L[i];
+    if (l<200 && l===mn[i]){ cores++; if (l>60) light++; }
+    if (l<180){ ink++; const j=i*4; if (Math.max(d[j],d[j+1],d[j+2])-Math.min(d[j],d[j+1],d[j+2])>60) colored++; }
+    if (l<120){ colCnt[x]++; rowCnt[y]++; } }
+  // 中身のある範囲(余白カット用)。裏写りのような薄い点は数えない
+  const edge=(arr,len,min)=>{ let a=0,b=len-1; while(a<len&&arr[a]<min)a++; while(b>a&&arr[b]<min)b--; return [a,b]; };
+  const [x0,x1]=edge(colCnt,w,Math.max(3,h*0.004)), [y0,y1]=edge(rowCnt,h,Math.max(3,w*0.004));
+  const px=w*0.015, py=h*0.015;
+  const box = (x1<=x0||y1<=y0) ? [0,0,1,1] :
+    [Math.max(0,(x0-px)/w), Math.max(0,(y0-py)/h), Math.min(1,(x1+px)/w), Math.min(1,(y1+py)/h)];
+  const faint = cores ? light/cores : 0;
+  return { faint, colorShare: ink? colored/ink : 0, box };
+}
+function riskOf(f){ return f>=0.5 ? 2 : f>=0.3 ? 1 : 0; }
+const RISK = ["かすれにくい","ややかすれやすい","かすれやすい"];
+
+async function renderRegion(pageNo, scale, box, maxW){
+  const page = await S.pdf.getPage(pageNo);
+  const vp0 = page.getViewport({scale});
+  const x = Math.floor(box[0]*vp0.width), y = Math.floor(box[1]*vp0.height);
+  let w = Math.ceil((box[2]-box[0])*vp0.width), h = Math.ceil((box[3]-box[1])*vp0.height);
+  if (maxW && w>maxW){ w=maxW; }
+  const vp = page.getViewport({scale, offsetX:-x, offsetY:-y});
+  const cv = document.createElement("canvas"); cv.width=w; cv.height=h;
+  const ctx = cv.getContext("2d", {willReadFrequently:true});
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,w,h);
+  await page.render({canvasContext:ctx, viewport:vp}).promise;
+  return {cv, ctx, w, h, pageW:vp0.width/scale, pageH:vp0.height/scale};
+}
+const tick = () => new Promise(r=>setTimeout(r,0));
+
+async function openFile(file){
+  if (!file) return;
+  if (S.outUrl){ URL.revokeObjectURL(S.outUrl); S.outUrl=null; $("outBtns").hidden=true; }
+  $("fileinfo").textContent = "読み込み中…";
+  try{
+    const buf = await file.arrayBuffer();
+    S.pdf = await pdfjsLib.getDocument({data:buf}).promise;
+  }catch(e){ $("fileinfo").innerHTML='<span class="err">PDFを開けませんでした。別のPDFでお試しください。</span>'; return; }
+  S.name = file.name.replace(/\.pdf$/i,"");
+  $("fileinfo").textContent = `${file.name}(${S.pdf.numPages}ページ)`;
+  $("s2").setAttribute("aria-disabled","false");
+  const box=$("thumbs"); box.innerHTML=""; S.pages=[];
+  const pr=$("aprog"); pr.hidden=false; pr.max=S.pdf.numPages; pr.value=0;
+  for (let p=1;p<=S.pdf.numPages;p++){
+    const r = await renderRegion(p, ANALYZE_DPI/72, [0,0,1,1]);
+    const a = analyzeCanvas(r.ctx, r.w, r.h);
+    const info = { no:p, ...a, risk:riskOf(a.faint), pageW:r.pageW, pageH:r.pageH, use:true };
+    S.pages.push(info);
+    const el=document.createElement("div"); el.className="thumb"; el.dataset.i=p-1;
+    const t=document.createElement("canvas"); const sc=240/r.w; t.width=240; t.height=Math.round(r.h*sc);
+    t.getContext("2d").drawImage(r.cv,0,0,t.width,t.height);
+    el.append(t);
+    const lab=document.createElement("label");
+    lab.innerHTML=`<input type="checkbox" checked> ${p}ページ`;
+    lab.querySelector("input").addEventListener("change",e=>{ info.use=e.target.checked; refreshSheet(); });
+    lab.addEventListener("click",e=>e.stopPropagation());
+    const pill=document.createElement("span"); pill.className="pill r"+info.risk; pill.textContent=RISK[info.risk];
+    el.append(lab,pill);
+    el.addEventListener("click",()=>selectPage(p-1));
+    box.append(el);
+    pr.value=p; await tick();
+  }
+  pr.hidden=true;
+  const avg = S.pages.reduce((s,x)=>s+x.faint,0)/S.pages.length;
+  const col = S.pages.some(x=>x.colorShare>0.05);
+  $("asummary").hidden=false;
+  $("asummary").innerHTML =
+    `<b>解析結果:</b> 文字の線のうち、真っ黒ではなく<b>灰色になっている部分が平均 ${Math.round(avg*100)}%</b> あります。`+
+    `レーザープリンタは灰色を細かい点の集まりで印刷するため、細い線ほど途切れて「かすれ」に見えます。`+
+    (col? `また<b>色のついた文字</b>があります。白黒プリンタでは中くらいの灰色になり、かすれやすくなります。`:"")+
+    `<br>補正では、文字だけを黒に寄せて少し太らせます。背景の色や裏写りのような薄い部分は濃くしません。`;
+  $("s3").setAttribute("aria-disabled","false"); $("s4").setAttribute("aria-disabled","false");
+  selectPage(0);
+}
+
+/* ---------- 配置の計算 ---------- */
+function layoutOf(){
+  const two = $("layout").value==="2";
+  const sheet = two ? {w:A4.h, h:A4.w} : {w:A4.w, h:A4.h};
+  const m = 18, gap = 14;
+  const slot = two ? {w:(sheet.w-2*m-gap)/2, h:sheet.h-2*m} : {w:sheet.w-2*m, h:sheet.h-2*m};
+  const slots = two ? [{x:m,y:m},{x:m+slot.w+gap,y:m}] : [{x:m,y:m}];
+  return {two, sheet, slot, slots};
+}
+function placeOf(pg, L){
+  const box = $("trim").value==="1" ? pg.box : [0,0,1,1];
+  const cw=(box[2]-box[0])*pg.pageW, ch=(box[3]-box[1])*pg.pageH;
+  const fit=Math.min(L.slot.w/cw, L.slot.h/ch);
+  return {box, fit, w:cw*fit, h:ch*fit};
+}
+
+/* ---------- 見本 ---------- */
+let pvToken=0;
+async function selectPage(i){
+  S.sel=i; document.querySelectorAll(".thumb").forEach(t=>t.classList.toggle("sel", +t.dataset.i===i));
+  const pg=S.pages[i]; if(!pg) return;
+  $("pvpage").textContent=`(${pg.no}ページの一部を拡大)`;
+  const my=++pvToken, L=layoutOf(), pl=placeOf(pg,L), dpi=+$("dpi").value;
+  const scale = pl.fit*dpi/72;
+  // 本文の真ん中あたりを切り出す
+  const b=pl.box, bw=b[2]-b[0], bh=b[3]-b[1];
+  const reg=[b[0]+bw*0.05, b[1]+bh*0.42, b[0]+bw*0.55, b[1]+bh*0.50];
+  const r = await renderRegion(pg.no, scale, reg);
+  if (my!==pvToken) return;
+  const before=$("pvBefore"), after=$("pvAfter");
+  before.width=after.width=r.w; before.height=after.height=r.h;
+  before.getContext("2d").drawImage(r.cv,0,0);
+  await tick();
+  const img=r.ctx.getImageData(0,0,r.w,r.h);
+  enhance(img, dpi, +$("bold").value, $("color").value);
+  if (my!==pvToken) return;
+  after.getContext("2d").putImageData(img,0,0);
+  refreshSheet();
+}
+function refreshSheet(){
+  const L=layoutOf(), cv=$("sheet"), k=420/L.sheet.w;
+  cv.width=420; cv.height=Math.round(L.sheet.h*k);
+  const ctx=cv.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,cv.width,cv.height);
+  const use=S.pages.filter(p=>p.use).slice(0, L.slots.length);
+  const thumbs=document.querySelectorAll(".thumb canvas");
+  use.forEach((pg,j)=>{
+    const pl=placeOf(pg,L), s=L.slots[j], src=thumbs[pg.no-1];
+    const dx=(s.x+(L.slot.w-pl.w)/2)*k, dy=(s.y+(L.slot.h-pl.h)/2)*k;
+    ctx.drawImage(src, pl.box[0]*src.width, pl.box[1]*src.height, (pl.box[2]-pl.box[0])*src.width, (pl.box[3]-pl.box[1])*src.height,
+      dx, dy, pl.w*k, pl.h*k);
+  });
+  ctx.strokeStyle="#c9d0d8"; ctx.strokeRect(0.5,0.5,cv.width-1,cv.height-1);
+}
+["layout","trim","bold","color","dpi"].forEach(id=>$(id).addEventListener("change",()=>{ $("outBtns").hidden=true; selectPage(S.sel); }));
+
+/* ---------- 印刷用PDFを作る ---------- */
+async function makePdf(){
+  const use=S.pages.filter(p=>p.use);
+  if(!use.length){ $("mkinfo").innerHTML='<span class="err">印刷するページが選ばれていません。</span>'; return; }
+  const btn=$("make"); btn.disabled=true; $("outBtns").hidden=true;
+  const pr=$("mprog"); pr.hidden=false; pr.max=use.length; pr.value=0;
+  const L=layoutOf(), dpi=+$("dpi").value, bold=+$("bold").value, color=$("color").value;
+  try{
+    const doc = await PDFLib.PDFDocument.create();
+    let sheet=null;
+    for (let k=0;k<use.length;k++){
+      $("mkinfo").textContent=`${k+1} / ${use.length} ページ目を処理中…`;
+      const pg=use[k], pl=placeOf(pg,L), slotI=k%L.slots.length;
+      if (slotI===0) sheet=doc.addPage([L.sheet.w, L.sheet.h]);
+      const r=await renderRegion(pg.no, pl.fit*dpi/72, pl.box);
+      await tick();
+      const img=r.ctx.getImageData(0,0,r.w,r.h);
+      enhance(img, dpi, bold, color);
+      r.ctx.putImageData(img,0,0);
+      const blob=await new Promise(res=>r.cv.toBlob(res,"image/jpeg",0.9));
+      const jpg=await doc.embedJpg(await blob.arrayBuffer());
+      r.cv.width=r.cv.height=1;
+      const s=L.slots[slotI];
+      sheet.drawImage(jpg,{ x:s.x+(L.slot.w-pl.w)/2, y:L.sheet.h-(s.y+(L.slot.h-pl.h)/2)-pl.h, width:pl.w, height:pl.h });
+      pr.value=k+1; await tick();
+    }
+    const bytes=await doc.save();
+    if (S.outUrl) URL.revokeObjectURL(S.outUrl);
+    S.outUrl=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));
+    const sheets=Math.ceil(use.length/L.slots.length);
+    $("mkinfo").textContent=`できました:A4 ${sheets}枚(${(bytes.length/1048576).toFixed(1)}MB)`;
+    $("save").href=S.outUrl; $("save").download=`${S.name}_くっきり${L.two?"_2アップ":""}.pdf`;
+    $("openTab").href=S.outUrl;
+    $("outBtns").hidden=false;
+  }catch(e){
+    console.error(e);
+    $("mkinfo").innerHTML='<span class="err">作成中に問題が起きました。画質を「標準」にして、もう一度お試しください。</span>';
+  }finally{ btn.disabled=false; pr.hidden=true; }
+}
+$("make").addEventListener("click",makePdf);
+$("print").addEventListener("click",()=>{
+  if(!S.outUrl) return;
+  let f=$("printFrame"); if(f) f.remove();
+  f=document.createElement("iframe"); f.id="printFrame";
+  f.style.cssText="position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0";
+  f.src=S.outUrl;
+  f.onload=()=>{ setTimeout(()=>{ try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ window.open(S.outUrl,"_blank"); } },300); };
+  document.body.append(f);
+});
+
+/* ---------- ファイル選択 ---------- */
+$("file").addEventListener("change",e=>openFile(e.target.files[0]));
+const drop=$("drop");
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop",e=>openFile(e.dataTransfer.files[0]));
+$("selAll").addEventListener("click",()=>{ S.pages.forEach(p=>p.use=true); document.querySelectorAll(".thumb input").forEach(c=>c.checked=true); refreshSheet(); });
+$("selNone").addEventListener("click",()=>{ S.pages.forEach(p=>p.use=false); document.querySelectorAll(".thumb input").forEach(c=>c.checked=false); refreshSheet(); });
+</script>
+</body>
+</html>
