@@ -656,8 +656,10 @@ function renderMake(){
       <label class="f">AIの種類</label>
       <div class="seg"><button class="${(m.model||'opus')==='opus'?'on':''}" onclick="mkSave();S.make.model='opus';renderMake()">Opus（かしこい）</button><button class="${m.model==='sonnet'?'on':''}" onclick="mkSave();S.make.model='sonnet';renderMake()">Sonnet（安い・速い）</button></div>
       <p class="muted small" style="margin:4px 0 0">どちらも「中エフォート」で作ります。Sonnetは料金がOpusの約半分です。</p>
-      <label class="f">枚数</label>
-      <select class="t" id="mkC">${[['auto','おまかせ（重要なところは全部）'],['10','10枚くらい'],['20','20枚くらい'],['30','30枚くらい'],['50','50枚くらい'],['80','80枚くらい']].map(([v,t])=>`<option value="${v}" ${String(m.count||'auto')===v?'selected':''}>${t}</option>`).join('')}</select>
+      <label class="f">作るカードの枚数</label>
+      <div class="row"><input class="t" id="mkC" type="number" inputmode="numeric" min="5" max="150" step="5" style="width:120px" placeholder="おまかせ" value="${m.count&&m.count!=='auto'?esc(m.count):''}"><span>枚くらい</span></div>
+      <div class="order-chips">${['おまかせ',10,20,30,50,80,100].map(n=>`<button onclick="$('#mkC').value='${n==='おまかせ'?'':n}'">${n==='おまかせ'?'おまかせ':n+'枚'}</button>`).join('')}</div>
+      <p class="muted small" style="margin:4px 0 0">空欄なら「おまかせ」（大事なところを全部）。だいたいの枚数で作ります（最大150枚）。</p>
     </div>
     <div class="card">
       <h3>④ AIへの注文 <span class="muted small">（なくてもOK）</span></h3>
@@ -670,7 +672,7 @@ function renderMake(){
 }
 function mkSave(){
   const m=S.make, v=id=>{const e=$(id);return e?e.value:undefined};
-  if($('#mkG')){m.grade=v('#mkG');m.term=v('#mkM');m.subject=v('#mkS');m.title=v('#mkT');m.count=v('#mkC');m.order=v('#mkO')}
+  if($('#mkG')){m.grade=v('#mkG');m.term=v('#mkM');m.subject=v('#mkS');m.title=v('#mkT');m.count=(v('#mkC')||'').trim()||'auto';m.order=v('#mkO')}
   if($('#mkText')) m.text=v('#mkText');
   if($('#mkW')) m.written=$('#mkW').checked;
   if($('#mkR')) m.related=$('#mkR').checked;
@@ -725,10 +727,23 @@ async function pdfToJpegs(file,onPage){
 function drawMakeProgress(){
   const m=S.make;
   const el=s=>m.step===s?'now':(m.doneSteps||[]).includes(s)?'done':'';
+  // 全体の進み具合 (準備10% / 読み取り50% / 問題づくり35% / 保存5%)
+  const genExp=m.genExpect||60, genT=m.step==='gen'?Math.min(0.95,(m.sec-(m.genStart||m.sec))/genExp):0;
+  let pct=0;
+  if(m.step==='prep') pct=10*(m.prepFrac||0);
+  else if(m.step==='read') pct=10+50*((m.readDone||0)/(m.readTotal||1));
+  else if(m.step==='gen') pct=60+35*genT;
+  else if(m.step==='save') pct=97;
+  if(m.useText&&m.step==='gen') pct=10+85*genT;
+  pct=Math.max(m.lastPct||0,Math.round(pct)); m.lastPct=pct;
+  const mm=Math.floor((m.sec||0)/60), ss=(m.sec||0)%60;
   setView(`<h2>✨ 問題を作っています</h2><div class="card">
+    <div class="row"><b class="grow" style="font-size:28px;color:var(--navy)">${pct}%</b><span class="muted small">経過 ${mm?mm+'分':''}${ss}秒</span></div>
+    <div class="bar" style="height:12px;border-radius:6px"><i style="width:${pct}%;background:var(--accent)"></i></div>
+    ${m.step==='gen'?`<p class="small" style="margin:8px 0 0">AIが${m.countLabel||''}カードを考えています（${m.modelLabel||''}）。${genT>=0.95?'もう少しです…':`あと約${Math.max(10,Math.round(genExp-(m.sec-(m.genStart||m.sec))))}秒`}</p>`:''}
     <ul class="steps">
       <li class="${el('prep')}">${el('prep')==='done'?'✅':el('prep')==='now'?'<span class="spinner"></span>':'・'} 写真・PDFを準備</li>
-      <li class="${el('read')}">${el('read')==='done'?'✅':el('read')==='now'?'<span class="spinner"></span>':'・'} 教材を読み取り ${m.readMsg||''}</li>
+      <li class="${el('read')}">${el('read')==='done'?'✅':el('read')==='now'?'<span class="spinner"></span>':'・'} 教材を読み取り ${m.readTotal?`（${m.readPages||0}/${m.pageCount||0}ページ）`:''}</li>
       <li class="${el('gen')}">${el('gen')==='done'?'✅':el('gen')==='now'?'<span class="spinner"></span>':'・'} AIが問題を作成</li>
       <li class="${el('save')}">${el('save')==='done'?'✅':el('save')==='now'?'<span class="spinner"></span>':'・'} 保存</li>
     </ul>
@@ -749,24 +764,28 @@ async function runMake(){
       // 1) 画像をそろえる (PDF は1ページずつ画像にする)
       const pages=[];
       for(const f of m.files){
-        if(f.kind==='pdf'){ m.msg=`${f.label} を画像にしています…`; pages.push(...await pdfToJpegs(f.file,(p,n)=>{m.msg=`${f.label}: ${p}/${n}ページ`})) }
-        else pages.push(await fileToJpeg(f.file));
+        const fi=m.files.indexOf(f), nf=m.files.length;
+        if(f.kind==='pdf'){ m.msg=`${f.label} を画像にしています…`; pages.push(...await pdfToJpegs(f.file,(p,n)=>{m.msg=`${f.label}: ${p}/${n}ページ`;m.prepFrac=(fi+p/n)/nf})) }
+        else { pages.push(await fileToJpeg(f.file)); m.prepFrac=(fi+1)/nf }
       }
       done('prep'); m.step='read';
       // 2) まとまりごとに読み取り (1回に送る量を小さく保つ)
       const batches=[]; let cur=[], size=0;
       for(const p of pages){ if(cur.length&&(cur.length>=5||size+p.length>3.2e6)){batches.push(cur);cur=[];size=0} cur.push(p); size+=p.length }
       if(cur.length) batches.push(cur);
-      const texts=[]; let off=0;
+      const texts=[]; let off=0; m.readTotal=batches.length; m.readDone=0; m.pageCount=pages.length; m.readPages=0;
       for(let i=0;i<batches.length;i++){
         m.readMsg=`(${i+1}/${batches.length})`; m.msg=`${pages.length}ページを読み取っています`;
-        const r=await api('transcribe',{images:batches[i],page_offset:off,model:m.model||'opus'}); texts.push(r.text); off+=batches[i].length;
+        const r=await api('transcribe',{images:batches[i],page_offset:off,model:m.model||'opus'}); texts.push(r.text); off+=batches[i].length; m.readDone=i+1; m.readPages=off;
       }
       source=texts.join('\n\n'); done('read');
     }
     // 3) 問題づくり
-    m.step='gen'; m.msg='問題を考えています…';
-    const g=await api('generate',{source_text:source,style:m.style,grade:m.grade,term:m.term,subject:m.subject,count:m.count||'auto',
+    const nReq=(m.count&&m.count!=='auto')?parseInt(m.count,10):0;
+    m.step='gen'; m.msg=''; m.genStart=m.sec; m.modelLabel=(m.model==='sonnet'?'Sonnet':'Opus');
+    m.countLabel=nReq?`約${nReq}枚の`:'';
+    m.genExpect=Math.round((m.model==='sonnet'?25:40)+(nReq||Math.min(120,source.length/60))*(m.model==='sonnet'?0.7:1.1));
+    const g=await api('generate',{source_text:source,style:m.style,grade:m.grade,term:m.term,subject:m.subject,count:(m.count&&m.count!=='auto')?Math.max(5,Math.min(150,parseInt(m.count,10)||0))||'auto':'auto',
       include_written:!!m.written,include_related:!!m.related,instructions:m.order||'',model:m.model||'opus'});
     done('gen');
     // 4) 保存
