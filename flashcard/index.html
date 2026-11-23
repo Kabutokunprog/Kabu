@@ -166,6 +166,7 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
 <nav class="tabs hidden" id="tabs"><div class="wrap">
   <button data-tab="decks" onclick="showTab('decks')"><span class="ic">📚</span>教材</button>
   <button data-tab="review" onclick="showTab('review')"><span class="ic">🔁</span>復習<span class="badge hidden" id="revBadge"></span></button>
+  <button data-tab="history" onclick="showTab('history')"><span class="ic">📈</span>記録</button>
   <button data-tab="make" onclick="showTab('make')"><span class="ic">✨</span>作る</button>
   <button data-tab="settings" onclick="showTab('settings')"><span class="ic">⚙️</span>設定</button>
 </div></nav>
@@ -292,6 +293,7 @@ function showTab(t){
   if(t==='decks') renderDecks();
   if(t==='review') renderReview();
   if(t==='make') renderMake();
+  if(t==='history') renderHistory();
   if(t==='settings') renderSettings();
 }
 async function refreshBadge(){
@@ -522,20 +524,39 @@ function startDeckStudy(){
   if(so.range==='wrong') list=list.filter(c=>c.progress&&c.progress.wrong_count>0);
   if(!list.length) return toast('出せる問題がありません');
   if(so.order==='rand') list=shuffle(list);
-  startStudy(list,{mode:'normal',reverse:S.deck.card_kind==='word'&&so.reverse,title:S.deck.title,word:S.deck.card_kind==='word',back:()=>openDeck(S.deck.id)});
+  const d=S.deck;
+  startStudy(list,{mode:'normal',reverse:d.card_kind==='word'&&so.reverse,title:d.title,word:d.card_kind==='word',
+    rec:{profile_id:S.profile.id,deck_id:d.id,deck_title:d.title,subject:d.subject},back:()=>openDeck(d.id)});
 }
 let ST=null;
+// 答えは最後にまとめて記録する (途中で戻って直せるように)。途中で閉じても次回に送る。
 function startStudy(cards,o){
-  ST={cards,i:0,shown:false,results:[],...o};
+  ST={cards,i:0,shown:false,res:new Array(cards.length),startedAt:new Date().toISOString(),...o};
   document.body.style.overflow='hidden';
   drawStudy();
+}
+function studyPayload(){
+  if(!ST) return null;
+  const answers=[], wrong=[];
+  ST.cards.forEach((c,k)=>{const r=ST.res[k]; if(r===undefined) return; answers.push({card_id:c.id,correct:r}); if(!r) wrong.push({q:c.question,a:c.answer})});
+  if(!answers.length) return null;
+  return {...ST.rec,mode:ST.mode,started_at:ST.startedAt,answers,wrong_items:wrong};
+}
+function keepPending(){const p=studyPayload(); lsSet('flash_pending_session',p?JSON.stringify(p):null)}
+async function flushStudy(){
+  const p=studyPayload(); if(!p||ST.flushed) return; ST.flushed=true; lsSet('flash_pending_session',null);
+  try{ await api('finish_session',p) }catch(e){ lsSet('flash_pending_session',JSON.stringify(p)); toast('記録を送れませんでした。次に開いたときに送ります') }
+}
+async function sendLeftoverSession(){
+  const raw=lsGet('flash_pending_session'); if(!raw) return;
+  try{ await api('finish_session',JSON.parse(raw)); lsSet('flash_pending_session',null) }catch(e){}
 }
 function drawStudy(){
   const root=$('#studyRoot');
   if(!ST){root.innerHTML='';document.body.style.overflow='';return}
   const n=ST.cards.length;
   if(ST.i>=n) return drawResult();
-  const c=ST.cards[ST.i], word=ST.word||(c.deck&&c.deck.card_kind==='word');
+  const c=ST.cards[ST.i], word=ST.word||(c.deck&&c.deck.card_kind==='word'), r=ST.res[ST.i];
   let q=c.question, a=c.answer;
   if(ST.reverse){q=c.answer;a=c.question}
   const bigQ=word&&!ST.reverse&&q.length<=10, longA=a.length>40;
@@ -543,8 +564,9 @@ function drawStudy(){
     <div class="head"><button class="btn sm ghost" onclick="quitStudy()">✕</button>
       <div class="prog"><i style="width:${ST.i/n*100}%"></i></div><b>${ST.i+1}/${n}</b></div>
     <div class="flash">
-      <div class="muted small" style="margin-bottom:6px">${esc(ST.mode==='review'?'🔁 復習フラッシュ':ST.title)}${c.deck?` ・ ${esc(c.deck.title)}`:''}</div>
-      <button class="face-card" onclick="${ST.shown?'':'flip()'}">
+      <div class="muted small" style="margin-bottom:6px">${esc(ST.mode==='review'?'🔁 復習フラッシュ':ST.title)}${c.deck?` ・ ${esc(c.deck.title)}`:''}
+        ${r!==undefined?`<span class="chip ${r?'ok':'rev'}" style="margin-left:6px">${r?'○ 正解にした':'✕ まちがいにした'}</span>`:''}</div>
+      <button class="face-card" onclick="${ST.shown?'unflip()':'flip()'}">
         ${c.tag?`<span class="chip" style="margin-bottom:10px">${esc(c.tag)}</span>`:''}
         <div class="qq ${bigQ?'big':''}">${esc(q)}</div>
         ${ST.shown?`<div class="aa"><div class="ans ${longA?'long':''}">${esc(a)}</div>
@@ -552,38 +574,48 @@ function drawStudy(){
           ${c.example?`<div class="ex">${esc(c.example)}</div>`:''}</div>`
           :`<div class="tap-hint">タップして答えを見る</div>`}
       </button>
-      ${ST.shown?`<div class="judge"><button class="ng" onclick="judge(false)">✕ まちがい</button><button class="ok" onclick="judge(true)">○ せいかい</button></div>`
+      ${ST.shown?`<div class="judge"><button class="ng" style="${r===false?'outline:3px solid var(--ng)':''}" onclick="judge(false)">✕ まちがい</button><button class="ok" style="${r===true?'outline:3px solid var(--ok)':''}" onclick="judge(true)">○ せいかい</button></div>`
         :`<button class="btn navy block" style="margin-top:14px;padding:16px;font-size:18px" onclick="flip()">答えを見る</button>`}
+      <div class="row" style="margin-top:10px">
+        <button class="btn ghost grow" ${ST.i===0?'disabled':''} onclick="prevCard()">‹ 前のカード</button>
+        <button class="btn ghost grow" ${r===undefined?'disabled':''} onclick="nextCard()">次のカード ›</button>
+      </div>
     </div></div>`;
 }
 function flip(){ST.shown=true;drawStudy()}
-function judge(ok){
-  const c=ST.cards[ST.i];
-  ST.results.push({card:c,ok});
-  api('answer',{card_id:c.id,correct:ok,mode:ST.mode}).catch(e=>toast('記録できませんでした: '+e.message));
-  ST.i++; ST.shown=false; drawStudy();
-}
+function unflip(){ST.shown=false;drawStudy()}
+function judge(ok){ST.res[ST.i]=ok;keepPending();ST.i++;ST.shown=ST.res[ST.i]!==undefined;drawStudy()}
+function prevCard(){if(ST.i>0){ST.i--;ST.shown=true;drawStudy()}}
+function nextCard(){if(ST.res[ST.i]!==undefined){ST.i++;ST.shown=ST.res[ST.i]!==undefined;drawStudy()}}
 function drawResult(){
-  const ok=ST.results.filter(r=>r.ok).length, n=ST.results.length, wrong=ST.results.filter(r=>!r.ok).map(r=>r.card);
+  const done=ST.res.filter(r=>r!==undefined), ok=done.filter(r=>r).length, n=done.length;
+  const wrong=ST.cards.filter((c,k)=>ST.res[k]===false);
   const pct=n?Math.round(ok/n*100):0;
   $('#studyRoot').innerHTML=`<div class="study"><div class="flash" style="justify-content:center">
     <div class="card result">
       <div style="font-size:44px">${pct===100?'🎉':pct>=70?'👏':'💪'}</div>
       <div class="big">${ok} / ${n}</div><div class="muted">正解率 ${pct}%</div>
-      ${wrong.length?`<p class="small" style="margin-top:14px">間違えた${wrong.length}問は「🔁 復習」に入りました。</p>`:'<p>全問正解！</p>'}
+      ${wrong.length?`<p class="small" style="margin-top:14px">間違えた${wrong.length}問は「🔁 復習」に入ります。</p>`:'<p>全問正解！</p>'}
       ${ST.mode==='review'&&ok?`<p class="small muted">復習で3回続けて正解すると「卒業」です。</p>`:''}
       <div style="display:grid;gap:10px;margin-top:16px">
+        <button class="btn ghost block" onclick="ST.i=ST.cards.length-1;ST.shown=true;drawStudy()">‹ 最後のカードにもどって直す</button>
         ${wrong.length?`<button class="btn primary block" onclick="retryWrong()">間違えた${wrong.length}問をもう一度</button>`:''}
-        <button class="btn block" onclick="quitStudy()">もどる</button>
+        <button class="btn block" onclick="quitStudy()">記録してもどる</button>
       </div></div></div></div>`;
 }
-function retryWrong(){const w=ST.results.filter(r=>!r.ok).map(r=>r.card);ST={...ST,cards:shuffle(w),i:0,shown:false,results:[]};drawStudy()}
-function quitStudy(){const back=ST&&ST.back;ST=null;drawStudy();if(back)back()}
+async function retryWrong(){
+  const w=ST.cards.filter((c,k)=>ST.res[k]===false), o={...ST};
+  await flushStudy();
+  startStudy(shuffle(w),{mode:o.mode,reverse:o.reverse,title:o.title,word:o.word,rec:o.rec,back:o.back});
+}
+async function quitStudy(){const back=ST&&ST.back;await flushStudy();ST=null;drawStudy();if(back)back()}
 document.addEventListener('keydown',e=>{
   if(!ST||ST.i>=ST.cards.length) return;
+  if(e.key==='ArrowLeft'){prevCard();return}
+  if(e.key==='ArrowRight'){nextCard();return}
   if(!ST.shown&&(e.key===' '||e.key==='Enter')){e.preventDefault();flip()}
-  else if(ST.shown&&(e.key==='1'||e.key==='ArrowLeft')) judge(false);
-  else if(ST.shown&&(e.key==='2'||e.key==='ArrowRight')) judge(true);
+  else if(ST.shown&&e.key==='1') judge(false);
+  else if(ST.shown&&e.key==='2') judge(true);
 });
 
 // ------------------------------------------------------------ 復習フラッシュ
@@ -618,7 +650,46 @@ function startReview(onlyDue){
   let l=onlyDue?S.review.filter(isDue):S.review.slice();
   if(S.revSub) l=l.filter(c=>c.deck&&c.deck.subject===S.revSub);
   if(!l.length) return toast('問題がありません');
-  startStudy(shuffle(l),{mode:'review',title:'復習',back:renderReview});
+  startStudy(shuffle(l),{mode:'review',title:'復習',rec:{profile_id:S.profile.id,deck_id:null,deck_title:'復習フラッシュ',subject:S.revSub||''},back:renderReview});
+}
+
+// ------------------------------------------------------------ 学習の記録
+function dayKey(d){d=new Date(d);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+async function renderHistory(){
+  loading();
+  let ss=[]; try{ ss=(await api('history',{profile_id:S.profile.id})).sessions }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
+  S.hist=ss;
+  const byDay={}; ss.forEach(x=>{const k=dayKey(x.finished_at);(byDay[k]=byDay[k]||{n:0,ok:0,list:[]});byDay[k].n+=x.total;byDay[k].ok+=x.correct;byDay[k].list.push(x)});
+  // 連続で勉強した日数
+  let streak=0; const t=new Date(); for(let k=0;k<400;k++){const d=new Date(t);d.setDate(t.getDate()-k);if(byDay[dayKey(d)])streak++;else if(k>0)break}
+  const week=Object.entries(byDay).filter(([k])=>daysAgo(k+'T00:00:00')<7).reduce((s,[,v])=>s+v.n,0);
+  const tot=ss.reduce((s,x)=>s+x.total,0), okAll=ss.reduce((s,x)=>s+x.correct,0);
+  const days=[...Array(14)].map((_,k)=>{const d=new Date(t);d.setDate(t.getDate()-13+k);const v=byDay[dayKey(d)];return {d,n:v?v.n:0,ok:v?v.ok:0}});
+  const mx=Math.max(10,...days.map(x=>x.n));
+  setView(`<h2>📈 ${esc(S.profile.name)}の学習の記録</h2>
+    <div class="stats">
+      <div class="stat"><b>${streak}</b><span>連続日数</span></div>
+      <div class="stat"><b>${week}</b><span>この7日で解いた数</span></div>
+      <div class="stat"><b>${tot?Math.round(okAll/tot*100):0}%</b><span>全体の正解率</span></div>
+    </div>
+    <div class="card"><h3>この2週間</h3>
+      <div style="display:flex;align-items:flex-end;gap:4px;height:120px;margin-top:6px">
+        ${days.map(x=>`<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%" title="${x.n}問">
+          <div style="height:${(x.n-x.ok)/mx*100}%;background:var(--ng);border-radius:${x.n-x.ok?'4px 4px 0 0':'0'}"></div>
+          <div style="height:${x.ok/mx*100}%;background:var(--ok);border-radius:${x.n-x.ok?'0':'4px 4px 0 0'}"></div></div>`).join('')}
+      </div>
+      <div style="display:flex;gap:4px;margin-top:4px">${days.map(x=>`<div class="muted" style="flex:1;text-align:center;font-size:10px">${x.d.getDate()}</div>`).join('')}</div>
+      <p class="muted small" style="margin:6px 0 0">緑＝正解、赤＝まちがい（解いた問題数）</p>
+    </div>
+    ${ss.length?Object.entries(byDay).map(([k,v])=>`<div class="card">
+      <div class="row"><h3 class="grow" style="margin:0">${k.replace(/^(\d+)-0?(\d+)-0?(\d+)$/,'$2月$3日')}</h3><span class="muted small">${v.n}問 ・ 正解 ${v.ok}</span></div>
+      <ul class="qlist">${v.list.map(x=>{const pct=x.total?Math.round(x.correct/x.total*100):0;const d=new Date(x.finished_at);return `<li><div class="grow">
+        <div class="row"><b class="grow">${esc(x.deck_title||'教材')}</b><span class="chip ${pct>=80?'ok':pct<50?'rev':''}">${x.correct}/${x.total}（${pct}%）</span></div>
+        <div class="muted small">${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} ・ ${x.mode==='review'?'🔁 復習':'▶ 学習'}${x.subject?' ・ '+esc(x.subject):''}</div>
+        ${(x.wrong_items||[]).length?`<details class="small" style="margin-top:4px"><summary>まちがえた問題（${x.wrong_items.length}）</summary>
+          ${x.wrong_items.map(w=>`<div style="margin:4px 0">・${esc(w.q)} → <b>${esc(w.a)}</b></div>`).join('')}</details>`:''}
+      </div></li>`}).join('')}</ul></div>`).join('')
+    :'<div class="card center"><p>まだ記録がありません。<br>教材を開いて「はじめる」を押すと、ここに記録されます。</p></div>'}`);
 }
 
 // ------------------------------------------------------------ 作る
@@ -890,6 +961,7 @@ async function changePass(){
 (async()=>{
   const pid=+lsGet('flash_profile');
   await boot();
+  sendLeftoverSession();
   checkPending();
   if(pid&&S.profiles.length&&S.profiles.find(p=>p.id===pid)) enterProfile(pid);
 })();

@@ -209,6 +209,22 @@ class SupaStore:
     def save_progress(self, row):
         self._req("POST", "flash_progress", body=row, prefer="resolution=merge-duplicates,return=minimal")
 
+    def get_progress_many(self, ids):
+        if not ids:
+            return []
+        return self._req("GET", "flash_progress", {"card_id": f"in.({','.join(str(int(i)) for i in ids)})", "select": "*"})
+
+    def save_progress_many(self, rows):
+        if rows:
+            self._req("POST", "flash_progress", body=rows, prefer="resolution=merge-duplicates,return=minimal")
+
+    def add_session(self, row):
+        self._req("POST", "flash_sessions", body=row, prefer="return=minimal")
+
+    def list_sessions(self, profile_id, limit=300):
+        return self._req("GET", "flash_sessions", {"profile_id": f"eq.{int(profile_id)}", "select": "*",
+                                                   "order": "finished_at.desc", "limit": str(limit)})
+
     def review_cards(self, profile_id):
         rows = self._req("GET", "flash_progress", {
             "in_review": "is.true",
@@ -354,6 +370,24 @@ class MemoryStore:
     def save_progress(self, row):
         self._need()
         self.data["progress"][int(row["card_id"])] = row
+
+    def get_progress_many(self, ids):
+        self._need()
+        return [dict(self.data["progress"][int(i)]) for i in ids if int(i) in self.data["progress"]]
+
+    def save_progress_many(self, rows):
+        self._need()
+        for r in rows:
+            self.data["progress"][int(r["card_id"])] = r
+
+    def add_session(self, row):
+        self._need()
+        self.data.setdefault("sessions", []).append(dict(row, id=self._id()))
+
+    def list_sessions(self, profile_id, limit=300):
+        self._need()
+        rows = [r for r in self.data.get("sessions", []) if r["profile_id"] == int(profile_id)]
+        return sorted(rows, key=lambda r: r["finished_at"], reverse=True)[:limit]
 
     def review_cards(self, profile_id):
         self._need()
@@ -673,6 +707,41 @@ def handle(action, body, passcode):
         row["card_id"] = int(body["card_id"])
         s.save_progress(row)
         return {"progress": row}
+
+    if action == "finish_session":
+        # 1回分の学習をまとめて記録 (戻って答えを直せるよう、最後にまとめて送る)
+        answers = {}
+        for a in body.get("answers") or []:
+            answers[int(a["card_id"])] = bool(a.get("correct"))
+        mode = body.get("mode", "normal")
+        if answers:
+            old = {int(p["card_id"]): p for p in s.get_progress_many(list(answers))}
+            rows = []
+            for cid, ok in answers.items():
+                row = apply_answer(old.get(cid), ok, mode)
+                row["card_id"] = cid
+                for k in ("correct_count", "wrong_count", "last_result", "last_answered_at", "in_review", "review_streak", "next_due_at"):
+                    row.setdefault(k, None)
+                rows.append({k: row[k] for k in ("card_id", "correct_count", "wrong_count", "last_result", "last_answered_at",
+                                                   "in_review", "review_streak", "next_due_at")})
+            s.save_progress_many(rows)
+            wrong = [w for w in (body.get("wrong_items") or [])][:100]
+            s.add_session({
+                "profile_id": int(body["profile_id"]),
+                "deck_id": int(body["deck_id"]) if body.get("deck_id") else None,
+                "deck_title": str(body.get("deck_title") or "")[:200],
+                "subject": str(body.get("subject") or "")[:50],
+                "mode": "review" if mode == "review" else "normal",
+                "total": len(answers),
+                "correct": sum(1 for v in answers.values() if v),
+                "wrong_items": [{"q": str(w.get("q", ""))[:300], "a": str(w.get("a", ""))[:300]} for w in wrong],
+                "started_at": body.get("started_at"),
+                "finished_at": iso(now_utc()),
+            })
+        return {"saved": len(answers)}
+
+    if action == "history":
+        return {"sessions": s.list_sessions(body["profile_id"])}
 
     if action == "review_list":
         return {"cards": s.review_cards(body["profile_id"]), "now": iso(now_utc())}
