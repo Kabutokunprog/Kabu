@@ -8,6 +8,8 @@ import base64
 import json
 import os
 import re
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -256,6 +258,43 @@ class SupaStore:
     def add_attempt(self, row):
         return self._req("POST", "flash_test_attempts", body=row, prefer="return=representation")[0]
 
+    # 裏で進める作成ジョブ
+    def job_insert(self, row):
+        return self._req("POST", "flash_jobs", body=row, prefer="return=representation")[0]
+
+    def job_get(self, job_id):
+        rows = self._req("GET", "flash_jobs", {"id": f"eq.{int(job_id)}", "select": "*"})
+        if not rows:
+            raise ApiError("作成中の教材が見つかりません", 404)
+        return rows[0]
+
+    def job_update(self, job_id, data):
+        self._req("PATCH", "flash_jobs", {"id": f"eq.{int(job_id)}"}, dict(data, updated_at=iso(now_utc())), prefer="return=minimal")
+
+    def job_claim(self, job_id, token):
+        stale = (now_utc() - timedelta(seconds=90)).replace(microsecond=0).isoformat()
+        rows = self._req("PATCH", "flash_jobs", {"id": f"eq.{int(job_id)}", "status": "in.(queued,reading,generating)",
+                                                 "or": f'(runner.is.null,heartbeat_at.lt."{stale}")'},
+                         {"runner": token, "heartbeat_at": iso(now_utc())}, prefer="return=representation")
+        return bool(rows)
+
+    def job_list(self):
+        since = iso(now_utc() - timedelta(days=2))
+        return self._req("GET", "flash_jobs", {"created_at": f"gte.{since}", "dismissed": "is.false",
+                                               "select": "id,profile_id,kind,label,status,params,page_count,read_done,deck_id,card_count,error,heartbeat_at,gen_started_at,created_at,updated_at",
+                                               "order": "created_at.desc"})
+
+    def pages_put(self, rows):
+        if rows:
+            self._req("POST", "flash_job_pages", body=rows, prefer="resolution=merge-duplicates,return=minimal")
+
+    def pages_get(self, job_id, start, end):
+        return self._req("GET", "flash_job_pages", {"job_id": f"eq.{int(job_id)}", "and": f"(idx.gte.{int(start)},idx.lt.{int(end)})",
+                                                    "select": "idx,data", "order": "idx.asc"})
+
+    def pages_delete(self, job_id):
+        self._req("DELETE", "flash_job_pages", {"job_id": f"eq.{int(job_id)}"})
+
     def delete_test(self, test_id):
         self._req("DELETE", "flash_tests", {"id": f"eq.{int(test_id)}"})
 
@@ -433,6 +472,56 @@ class MemoryStore:
         r = dict(row, id=self._id())
         self.data.setdefault("attempts", []).append(r)
         return r
+
+    def job_insert(self, row):
+        self._need()
+        r = dict(dict(page_count=0, read_done=0, source_text="", deck_id=None, card_count=0, error="", runner=None,
+                      heartbeat_at=None, gen_started_at=None, dismissed=False), **row, id=self._id(), created_at=iso(now_utc()))
+        self.data.setdefault("jobs", []).append(r)
+        return dict(r)
+
+    def job_get(self, job_id):
+        self._need()
+        j = next((j for j in self.data.get("jobs", []) if j["id"] == int(job_id)), None)
+        if not j:
+            raise ApiError("作成中の教材が見つかりません", 404)
+        return dict(j)
+
+    def job_update(self, job_id, data):
+        self._need()
+        for j in self.data.get("jobs", []):
+            if j["id"] == int(job_id):
+                j.update(data)
+
+    def job_claim(self, job_id, token):
+        j = next((j for j in self.data.get("jobs", []) if j["id"] == int(job_id)), None)
+        if not j or j["status"] not in ("queued", "reading", "generating"):
+            return False
+        hb = j.get("heartbeat_at")
+        if j.get("runner") and hb and datetime.fromisoformat(hb) > now_utc() - timedelta(seconds=90):
+            return False
+        j.update(runner=token, heartbeat_at=iso(now_utc()))
+        return True
+
+    def job_list(self):
+        self._need()
+        return [{k: v for k, v in j.items() if k != "source_text"} for j in sorted(self.data.get("jobs", []), key=lambda j: j["created_at"], reverse=True)
+                if not j.get("dismissed")]
+
+    def pages_put(self, rows):
+        self._need()
+        pg = self.data.setdefault("pages", {})
+        for r in rows:
+            pg[(int(r["job_id"]), int(r["idx"]))] = r["data"]
+
+    def pages_get(self, job_id, start, end):
+        pg = self.data.get("pages", {})
+        return [{"idx": i, "data": pg[(int(job_id), i)]} for i in range(int(start), int(end)) if (int(job_id), i) in pg]
+
+    def pages_delete(self, job_id):
+        pg = self.data.get("pages", {})
+        for k in [k for k in pg if k[0] == int(job_id)]:
+            pg.pop(k)
 
     def delete_test(self, test_id):
         self._need()
@@ -616,7 +705,13 @@ def claude_call(content, effort, schema=None, max_tokens=32000, model=None):
     return "".join(b.text for b in msg.content if b.type == "text")
 
 
+def mock_wait():
+    if MOCK and os.environ.get("FLASH_MOCK_DELAY"):
+        time.sleep(float(os.environ["FLASH_MOCK_DELAY"]))
+
+
 def ai_transcribe(images, page_offset, model=None):
+    mock_wait()
     if MOCK:
         return "\n".join(f"=== ページ {page_offset + i + 1} ===\n(お試しモード: 文字起こしの代わり)\n1. 江戸幕府を開いた人物は誰か。 → 徳川家康\n2. 8代将軍が行った改革は何か。 → 享保の改革"
                          for i in range(len(images)))
@@ -631,6 +726,7 @@ def ai_transcribe(images, page_offset, model=None):
 
 
 def ai_generate(opts):
+    mock_wait()
     if MOCK:
         cards = [
             {"question": "江戸幕府を開いた人物は誰か。", "answer": "徳川家康", "note": "とくがわいえやす", "example": "", "tag": "1603年", "year": 1603},
@@ -835,6 +931,82 @@ def ai_regenerate(deck, targets, others, instructions):
 # ---------------------------------------------------------------- API
 
 
+
+# ---------------------------------------------------------------- 裏で進める作成ジョブ
+# スマホは写真を預けるだけ。読み取り→問題づくり→保存はサーバーが自分で進める。
+# 1回の呼び出しの持ち時間(最大300秒)を超えそうなら、自分自身をもう一度呼んで続きをやる。
+JOB_STEP_BUDGET = float(os.environ.get("FLASH_JOB_BUDGET", "170"))  # 秒。これを過ぎたら次の呼び出しに引き継ぐ
+
+
+def self_url():
+    proto = request.headers.get("X-Forwarded-Proto", request.scheme)
+    return f"{proto}://{request.host}/api/flash"
+
+
+def kick_job(job_id, passcode):
+    """自分自身を呼んで続きを始めてもらう (返事は待たない)。"""
+    try:
+        requests.post(self_url(), json={"action": "job_continue", "job_id": int(job_id)},
+                      headers={"X-Flash-Pass": passcode, "Content-Type": "application/json"}, timeout=4)
+    except requests.RequestException:
+        pass
+
+
+def run_job(s, job_id, passcode):
+    token = uuid.uuid4().hex
+    if not s.job_claim(job_id, token):
+        return "busy"
+    start = time.time()
+    try:
+        while True:
+            j = s.job_get(job_id)
+            if j["status"] in ("done", "error"):
+                return j["status"]
+            if time.time() - start > JOB_STEP_BUDGET:
+                s.job_update(job_id, {"runner": None})
+                kick_job(job_id, passcode)
+                return "continued"
+            p = j.get("params") or {}
+            if j["status"] in ("queued", "reading") and j["read_done"] < j["page_count"]:
+                # 5ページ(または約3MB)ずつ読み取る
+                rows = s.pages_get(job_id, j["read_done"], j["read_done"] + 5)
+                batch, size = [], 0
+                for r in rows:
+                    if batch and size + len(r["data"]) > 3_200_000:
+                        break
+                    batch.append(r["data"])
+                    size += len(r["data"])
+                if not batch:
+                    raise ApiError("預かった写真が見つかりません。もう一度作り直してください。")
+                text = ai_transcribe(batch, j["read_done"], pick_model(p.get("model")))
+                src = (j.get("source_text") or "") + ("\n\n" if j.get("source_text") else "") + text
+                s.job_update(job_id, {"status": "reading", "source_text": src, "read_done": j["read_done"] + len(batch),
+                                      "heartbeat_at": iso(now_utc())})
+            elif j["status"] in ("queued", "reading"):
+                s.pages_delete(job_id)
+                s.job_update(job_id, {"status": "generating", "gen_started_at": iso(now_utc()), "heartbeat_at": iso(now_utc())})
+            elif j["status"] == "generating":
+                opts = dict(p, source_text=j["source_text"])
+                data = ai_generate(opts)
+                label = MODEL_LABEL.get(pick_model(p.get("model")), "")
+                deck = {k: str(p.get(k) or "") for k in ("grade", "term", "subject")}
+                deck.update(title=str(p.get("title") or "").strip() or data.get("title") or "無題の教材",
+                            card_kind="word" if data.get("card_kind") == "word" else "qa",
+                            profile_id=int(j["profile_id"]), source_text=j["source_text"],
+                            memo=f"AI: {label}" if label else "")
+                d = s.create_deck(deck, data["cards"])
+                s.job_update(job_id, {"status": "done", "deck_id": d["id"], "card_count": len(data["cards"]),
+                                      "label": deck["title"], "runner": None, "heartbeat_at": iso(now_utc())})
+                return "done"
+            else:
+                return j["status"]
+    except ApiError as e:
+        s.job_update(job_id, {"status": "error", "error": e.message, "runner": None})
+        return "error"
+    except Exception as e:  # 予期しないエラーも記録して止める
+        s.job_update(job_id, {"status": "error", "error": f"うまく作れませんでした ({type(e).__name__})", "runner": None})
+        return "error"
+
 def store_for(passcode):
     return MemoryStore(passcode) if MOCK else SupaStore(passcode)
 
@@ -1034,6 +1206,39 @@ def handle(action, body, passcode):
 
     if action == "delete_cards":
         s.delete_cards(body.get("card_ids") or [])
+        return {"ok": True}
+
+    if action == "job_create":
+        keys = ("style", "grade", "term", "subject", "count", "include_written", "include_related", "instructions", "model", "title")
+        params = {k: body.get(k) for k in keys}
+        text = str(body.get("source_text") or "")
+        j = s.job_insert({
+            "profile_id": int(body["profile_id"]), "kind": "make",
+            "label": str(body.get("label") or body.get("title") or "新しい教材")[:100],
+            "status": "queued" if text and not body.get("page_count") else "uploading",
+            "params": params, "page_count": int(body.get("page_count") or 0), "source_text": text,
+        })
+        return {"job_id": j["id"]}
+
+    if action == "job_pages":
+        rows = [{"job_id": int(body["job_id"]), "idx": int(body.get("start", 0)) + i, "data": d}
+                for i, d in enumerate(body.get("pages") or [])]
+        s.pages_put(rows)
+        return {"ok": True}
+
+    if action in ("job_start", "job_continue"):
+        jid = int(body["job_id"])
+        if action == "job_start":
+            j = s.job_get(jid)
+            if j["status"] == "uploading":
+                s.job_update(jid, {"status": "queued"})
+        return {"result": run_job(s, jid, passcode)}
+
+    if action == "job_list":
+        return {"jobs": s.job_list(), "now": iso(now_utc())}
+
+    if action == "job_dismiss":
+        s.job_update(int(body["job_id"]), {"dismissed": True})
         return {"ok": True}
 
     if action == "create_test":

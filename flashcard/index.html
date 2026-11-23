@@ -999,26 +999,32 @@ async function pdfToJpegs(file,onPage){
 }
 // ---- 作成ジョブ: 裏で進めるので、ほかの画面を使っていてOK
 S.jobs=[]; let jobSeq=0;
+function jobGenExpect(j){const so=j.model==='sonnet';return Math.round((so?25:40)+(j.nReq||Math.max(30,(j.pageCount||5)*6))*(so?0.7:1.1))}
 function jobPct(j){
-  const genExp=j.genExpect||60, genT=j.step==='gen'?Math.min(0.95,(j.sec-(j.genStart||j.sec))/genExp):0;
   let pct=0;
-  if(j.step==='prep') pct=10*(j.prepFrac||0);
-  else if(j.step==='read') pct=10+50*((j.readDone||0)/(j.readTotal||1));
-  else if(j.step==='gen') pct=(j.useText?10:60)+(j.useText?85:35)*genT;
+  if(j.kind==='test'){
+    const genExp=j.genExpect||60, genT=j.step==='gen'?Math.min(0.95,(j.sec-(j.genStart||0))/genExp):0;
+    pct=j.step==='done'?100:10+85*genT;
+  }else if(j.step==='prep') pct=5*(j.prepFrac||0);
+  else if(j.step==='upload') pct=5+5*(j.upFrac||0);
+  else if(j.step==='reading') pct=10+50*((j.readDone||0)/(j.pageCount||1));
+  else if(j.step==='generating'){const t=j.genStartedAt?(Date.now()-j.genStartedAt)/1000:0;pct=(j.pageCount?60:10)+(j.pageCount?35:85)*Math.min(0.95,t/jobGenExpect(j))}
   else if(j.step==='done') pct=100;
   pct=Math.max(j.lastPct||0,Math.round(pct)); j.lastPct=pct; return pct;
 }
 function jobStatusText(j){
   if(j.step==='done') return j.kind==='test'?`✅ ${j.cardCount}問のテストができました`:`✅ ${j.cardCount}枚できました`;
-  if(j.kind==='test'&&j.step==='gen'){const left=Math.round((j.genExpect||60)-(j.sec-(j.genStart||0)));return `AIがテスト問題を考え中（${j.modelLabel}）・${left>5?'あと約'+left+'秒':'もう少し'}`}
   if(j.step==='error') return `⚠️ ${j.error}`;
-  if(j.step==='prep') return '写真・PDFを準備中';
-  if(j.step==='read') return `教材を読み取り中（${j.readPages||0}/${j.pageCount||0}ページ）`;
-  const genExp=j.genExpect||60, left=Math.round(genExp-(j.sec-(j.genStart||j.sec)));
-  return `AIが${j.countLabel||''}カードを考え中（${j.modelLabel}）・${left>5?'あと約'+left+'秒':'もう少し'}`;
+  if(j.kind==='test'){const left=Math.round((j.genExpect||60)-(j.sec-(j.genStart||0)));return `AIがテスト問題を考え中（${j.modelLabel}）・${left>5?'あと約'+left+'秒':'もう少し'}`}
+  if(j.step==='prep') return '写真・PDFを準備中…（終わるまでアプリを閉じないでね）';
+  if(j.step==='upload') return `写真をサーバーに送信中 ${j.upDone||0}/${j.pageCount||0}（もうすぐ閉じても大丈夫）`;
+  if(j.step==='reading') return `教材を読み取り中（${j.readDone||0}/${j.pageCount||0}ページ）・アプリを閉じても続きます`;
+  if(j.step==='generating'){const t=j.genStartedAt?(Date.now()-j.genStartedAt)/1000:0, left=Math.round(jobGenExpect(j)-t);
+    return `AIが${j.nReq?'約'+j.nReq+'枚の':''}カードを考え中（${j.modelLabel}）・${left>5?'あと約'+left+'秒':'もう少し'}・閉じても大丈夫`}
+  return '';
 }
 function jobCardHtml(j){
-  const pct=jobPct(j), mm=Math.floor(j.sec/60), ss=j.sec%60;
+  const pct=jobPct(j), sec=j.createdAt?Math.max(0,Math.round(((j.endAt||Date.now())-j.createdAt)/1000)):j.sec, mm=Math.floor(sec/60), ss=sec%60;
   return `<div class="card" style="margin-bottom:10px">
     <div class="row"><b class="grow">${esc(j.label)}</b><span class="muted small">${esc(j.profileName)} ・ ${mm?mm+'分':''}${ss}秒</span></div>
     <div class="row" style="margin-top:6px"><div class="bar grow" style="height:10px;margin:0"><i style="width:${pct}%;background:${j.step==='error'?'var(--ng)':j.step==='done'?'var(--ok)':'var(--accent)'}"></i></div><b style="width:44px;text-align:right">${pct}%</b></div>
@@ -1044,84 +1050,96 @@ function drawJobs(){
 }
 setInterval(()=>{let any=false;for(const j of S.jobs){if(!['done','error'].includes(j.step)){j.sec++;any=true}}if(any||S.jobs.length)drawJobs()},1000);
 function openJobDeck(id){const j=S.jobs.find(x=>x.id===id);dismissJob(id);if(!j)return;if(S.profile&&j.profileId!==S.profile.id){enterProfile(j.profileId)}if(j.kind==='test')openTest(j.testId);else openDeck(j.deckId)}
-function dismissJob(id){S.jobs=S.jobs.filter(j=>j.id!==id);drawJobs()}
-function retryJob(id){const j=S.jobs.find(x=>x.id===id);dismissJob(id);if(j){S.make=j.form;S.make.running=false;showTab('make')}}
+function dismissJob(id){const j=S.jobs.find(x=>x.id===id);if(j&&j.serverId)api('job_dismiss',{job_id:j.serverId}).catch(()=>{});S.jobs=S.jobs.filter(j=>j.id!==id);drawJobs()}
+function retryJob(id){const j=S.jobs.find(x=>x.id===id);dismissJob(id);if(j&&j.form){S.make=j.form;showTab('make')}else showTab('make')}
 let wakeLock=null;
 async function keepAwake(on){try{if(on&&!wakeLock&&navigator.wakeLock){wakeLock=await navigator.wakeLock.request('screen');wakeLock.addEventListener('release',()=>{wakeLock=null})}if(!on&&wakeLock){await wakeLock.release();wakeLock=null}}catch(e){}}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.jobs.some(j=>!['done','error'].includes(j.step)))keepAwake(true)});
-function savePending(){try{lsSet('flash_pending',JSON.stringify(S.jobs.filter(j=>j.step==='gen').map(j=>({label:j.label,profileId:j.profileId,startedAt:j.startedAt}))))}catch(e){}}
-
 function runMake(){
   mkSave(); const m=S.make;
   if(m.useText){ if(!(m.text||'').trim()) return toast('教材の文章を貼ってください') }
   else if(!m.files.length) return toast('写真かPDFを追加してください');
   lsSet('flash_last_'+S.profile.id,JSON.stringify({grade:m.grade,term:m.term,subject:m.subject}));
   const nReq=(m.countOn&&m.count&&m.count!=='auto')?parseInt(m.count,10):0;
-  const j={id:++jobSeq,form:m,label:(m.title||'').trim()||[m.subject,'の教材'].filter(Boolean).join('')||'新しい教材',
-    profileId:S.profile.id,profileName:S.profile.name,useText:!!m.useText,step:'prep',sec:0,startedAt:Date.now(),
-    modelLabel:m.model==='sonnet'?'Sonnet':'Opus',countLabel:nReq?`約${nReq}枚の`:'',nReq};
+  const j={id:++jobSeq,kind:'make',form:m,label:(m.title||'').trim()||[m.subject,'の教材'].filter(Boolean).join('')||'新しい教材',
+    profileId:S.profile.id,profileName:S.profile.name,step:'prep',sec:0,createdAt:Date.now(),model:m.model||'opus',
+    modelLabel:m.model==='sonnet'?'Sonnet':'Opus',nReq};
   S.jobs.unshift(j);
-  // 入力欄は空に戻して、すぐ次の教材も作れるようにする
   const last=JSON.parse(lsGet('flash_last_'+S.profile.id)||'{}');
   S.make={files:[],style:m.style,model:m.model,grade:last.grade||'',term:last.term||'',subject:last.subject||'',useText:false};
-  toast('作成を始めました。ほかの画面を使っていて大丈夫です',3500);
+  toast('作成を始めました。写真を送り終わったら、アプリを閉じても続きます',4000);
   keepAwake(true);
-  runJob(j);
+  uploadJob(j);
   renderMake();
 }
-async function runJob(j){
+async function uploadJob(j){
   const m=j.form;
   try{
-    let source='';
-    if(m.useText){ source=m.text }
-    else{
-      // 1) 画像をそろえる (PDF は1ページずつ画像にする)
+    const params={profile_id:j.profileId,label:j.label,style:m.style,grade:m.grade,term:m.term,subject:m.subject,title:(m.title||'').trim(),
+      count:j.nReq?Math.max(5,Math.min(150,j.nReq)):'auto',include_written:!!m.written,include_related:!!m.related,instructions:m.order||'',model:m.model||'opus'};
+    if(m.useText){
+      const r=await api('job_create',{...params,source_text:m.text,page_count:0});
+      j.serverId=r.job_id; j.step='generating'; j.genStartedAt=Date.now();
+    }else{
+      // 1) 写真・PDFを画像にそろえる (ここだけはスマホで行う)
       const pages=[];
       for(const f of m.files){
         const fi=m.files.indexOf(f), nf=m.files.length;
         if(f.kind==='pdf'){ pages.push(...await pdfToJpegs(f.file,(p,n)=>{j.prepFrac=(fi+p/n)/nf})) }
         else { pages.push(await fileToJpeg(f.file)); j.prepFrac=(fi+1)/nf }
       }
-      j.step='read';
-      // 2) まとまりごとに読み取り (1回に送る量を小さく保つ)
-      const batches=[]; let cur=[], size=0;
-      for(const p of pages){ if(cur.length&&(cur.length>=5||size+p.length>3.2e6)){batches.push(cur);cur=[];size=0} cur.push(p); size+=p.length }
-      if(cur.length) batches.push(cur);
-      const texts=[]; let off=0; j.readTotal=batches.length; j.readDone=0; j.pageCount=pages.length; j.readPages=0;
-      for(let i=0;i<batches.length;i++){
-        const r=await api('transcribe',{images:batches[i],page_offset:off,model:m.model||'opus'}); texts.push(r.text); off+=batches[i].length; j.readDone=i+1; j.readPages=off;
+      // 2) サーバーに預ける (約3MBずつ)
+      j.step='upload'; j.pageCount=pages.length; j.upDone=0;
+      const r=await api('job_create',{...params,page_count:pages.length}); j.serverId=r.job_id;
+      let k=0;
+      while(k<pages.length){
+        const chunk=[]; let size=0;
+        while(k+chunk.length<pages.length&&(chunk.length===0||size+pages[k+chunk.length].length<3.2e6)&&chunk.length<4){size+=pages[k+chunk.length].length;chunk.push(pages[k+chunk.length])}
+        await api('job_pages',{job_id:j.serverId,start:k,pages:chunk}); k+=chunk.length; j.upDone=k; j.upFrac=k/pages.length;
       }
-      source=texts.join('\n\n');
+      j.step='reading'; j.readDone=0;
     }
-    // 3) 問題づくり + 保存 (サーバー側で保存まで行う)
-    j.step='gen'; j.genStart=j.sec;
-    j.genExpect=Math.round((m.model==='sonnet'?25:40)+(j.nReq||Math.min(120,source.length/60))*(m.model==='sonnet'?0.7:1.1));
-    savePending();
-    const g=await api('generate',{save:true,profile_id:j.profileId,title:(m.title||'').trim(),source_text:source,style:m.style,grade:m.grade,term:m.term,subject:m.subject,
-      count:j.nReq?Math.max(5,Math.min(150,j.nReq)):'auto',include_written:!!m.written,include_related:!!m.related,instructions:m.order||'',model:m.model||'opus'});
-    j.step='done'; j.cardCount=g.cards.length; j.deckId=g.deck_id; j.label=g.title;
-    toast(`✅「${g.title}」${g.cards.length}枚できました！`,4000);
-    if(S.tab==='decks'&&S.profile&&S.profile.id===j.profileId&&!S.deck) renderDecks();
-  }catch(e){
-    j.step='error'; j.error=e.message;
-  }
-  savePending();
-  if(!S.jobs.some(x=>!['done','error'].includes(x.step))) keepAwake(false);
+    // 3) あとはサーバーが自分で進める (この返事は待たなくてよい)
+    api('job_start',{job_id:j.serverId}).then(syncJobs).catch(()=>{});
+    setTimeout(syncJobs,3000);
+  }catch(e){ j.step='error'; j.error=e.message; }
+  if(!S.jobs.some(x=>['prep','upload'].includes(x.step))) keepAwake(false);
   drawJobs();
 }
-// アプリを閉じている間に、サーバーで作成が終わっていないか確認する
-async function checkPending(){
-  let pend=[]; try{pend=JSON.parse(lsGet('flash_pending')||'[]')}catch(e){}
-  pend=pend.filter(p=>Date.now()-p.startedAt<30*60e3); if(!pend.length){lsSet('flash_pending',null);return}
-  for(const p of pend){
-    try{ const r=await api('list_decks',{profile_id:p.profileId});
-      const d=r.decks.find(d=>new Date(d.created_at).getTime()>=p.startedAt-60e3);
-      if(d){ S.jobs.unshift({id:++jobSeq,label:d.title,profileId:p.profileId,profileName:(S.profiles.find(x=>x.id===p.profileId)||{}).name||'',step:'done',sec:0,cardCount:d.card_count,deckId:d.id}); p.found=true }
-    }catch(e){}
-  }
-  lsSet('flash_pending',JSON.stringify(pend.filter(p=>!p.found&&!S.jobs.some(j=>j.startedAt===p.startedAt))));
-  drawJobs();
+// サーバーにある作成ジョブの状態を取りに行く (開き直したときや別のスマホでも見える)
+const STEP_OF={uploading:'upload',queued:'reading',reading:'reading',generating:'generating',done:'done',error:'error'};
+let syncing=false, lastKick={};
+async function syncJobs(){
+  if(syncing||!S.pass) return; syncing=true;
+  try{
+    const r=await api('job_list',{}); const now=new Date(r.now).getTime();
+    for(const sj of r.jobs){
+      let j=S.jobs.find(x=>x.serverId===sj.id);
+      if(!j){
+        if(sj.status==='uploading'&&now-new Date(sj.updated_at||sj.created_at).getTime()<10*60e3) continue; // 別の画面で送信中
+        j={id:++jobSeq,kind:'make',serverId:sj.id,label:sj.label,profileId:sj.profile_id,profileName:(S.profiles.find(p=>p.id===sj.profile_id)||{}).name||'',
+          sec:0,createdAt:new Date(sj.created_at).getTime(),model:(sj.params||{}).model,modelLabel:(sj.params||{}).model==='sonnet'?'Sonnet':'Opus',
+          nReq:parseInt((sj.params||{}).count,10)||0};
+        S.jobs.unshift(j);
+      }
+      if(['prep','upload'].includes(j.step)&&sj.status==='uploading') continue; // まだこのスマホから送信中
+      j.step=STEP_OF[sj.status]||j.step; j.label=sj.label||j.label; j.pageCount=sj.page_count; j.readDone=sj.read_done;
+      j.genStartedAt=sj.gen_started_at?new Date(sj.gen_started_at).getTime():null; j.deckId=sj.deck_id; j.cardCount=sj.card_count; j.error=sj.error;
+      if(sj.status==='uploading'){j.step='error';j.error='写真を送る途中でアプリが閉じられたため、止まりました。もう一度作ってください。'}
+      if(['done','error'].includes(j.step)&&!j.endAt) j.endAt=new Date(sj.updated_at||sj.created_at).getTime();
+      if(j.step==='done'&&!j.notified&&j.seenActive){j.notified=true;toast(`✅「${j.label}」${j.cardCount}枚できました！`,4000);if(S.tab==='decks'&&S.profile&&S.profile.id===j.profileId&&!S.deck)renderDecks()}
+      if(!['done','error'].includes(j.step)) j.seenActive=true;
+      // 止まっていそうなら、サーバーに続きを頼む
+      const hb=sj.heartbeat_at?new Date(sj.heartbeat_at).getTime():new Date(sj.created_at).getTime();
+      if(['queued','reading','generating'].includes(sj.status)&&now-hb>150e3&&Date.now()-(lastKick[sj.id]||0)>120e3){
+        lastKick[sj.id]=Date.now(); api('job_continue',{job_id:sj.id}).catch(()=>{});
+      }
+    }
+  }catch(e){}
+  syncing=false; drawJobs();
 }
+setInterval(()=>{if(S.jobs.some(j=>j.serverId&&!['done','error'].includes(j.step)))syncJobs()},5000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncJobs()});
 
 // ------------------------------------------------------------ 設定
 async function renderSettings(){
@@ -1179,7 +1197,7 @@ setTimeout(checkUpdate,3000);
   const pid=+lsGet('flash_profile');
   await boot();
   sendLeftoverSession();
-  checkPending();
+  syncJobs();
   if(pid&&S.profiles.length&&S.profiles.find(p=>p.id===pid)) enterProfile(pid);
 })();
 </script>
