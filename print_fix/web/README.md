@@ -15,4 +15,4 @@
 
 https://kukkiri-print.vercel.app (Vercel プロジェクト kukkiri-print)
 
-公開版はライブラリを cdnjs から読み込みます(`lib/` 版と同じバージョン)。
+公開は GitHub のこのブランチから(Vercel のルートディレクトリ: print_fix/web)。
