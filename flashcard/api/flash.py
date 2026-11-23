@@ -572,6 +572,31 @@ def require_login(store):
     return role
 
 
+def deck_stats(decks, prog):
+    empty = {"answered": 0, "correct": 0, "wrong": 0, "in_review": 0, "mastered": 0}
+    stats = {}
+    for p in prog:
+        st = stats.setdefault(p["deck_id"], dict(empty))
+        st["answered"] += 1
+        st["correct"] += p["correct_count"]
+        st["wrong"] += p["wrong_count"]
+        st["in_review"] += 1 if p["in_review"] else 0
+        st["mastered"] += 1 if (p["correct_count"] > 0 and not p["in_review"]) else 0
+    for d in decks:
+        d["stats"] = stats.get(d["id"], dict(empty))
+    return decks
+
+
+def is_due(card):
+    due = (card.get("progress") or {}).get("next_due_at")
+    if not due:
+        return True
+    try:
+        return datetime.fromisoformat(due.replace("Z", "+00:00")) <= now_utc()
+    except ValueError:
+        return True
+
+
 DECK_EDIT_FIELDS = ("title", "grade", "term", "subject", "memo", "card_kind", "profile_id")
 
 
@@ -615,15 +640,18 @@ def handle(action, body, passcode):
     if action == "list_decks":
         decks, prog = s.list_decks(body["profile_id"])
         stats = {}
-        for p in prog:
-            st = stats.setdefault(p["deck_id"], {"answered": 0, "correct": 0, "wrong": 0, "in_review": 0})
-            st["answered"] += 1
-            st["correct"] += p["correct_count"]
-            st["wrong"] += p["wrong_count"]
-            st["in_review"] += 1 if p["in_review"] else 0
-        for d in decks:
-            d["stats"] = stats.get(d["id"], {"answered": 0, "correct": 0, "wrong": 0, "in_review": 0})
-        return {"decks": decks}
+        return {"decks": deck_stats(decks, prog)}
+
+    if action == "overview":
+        out = []
+        for p in s.list_profiles():
+            decks, prog = s.list_decks(p["id"])
+            decks = deck_stats(decks, prog)
+            due = [c for c in s.review_cards(p["id"]) if is_due(c)]
+            out.append(dict(p, deck_count=len(decks), card_count=sum(d["card_count"] for d in decks),
+                            mastered=sum(d["stats"]["mastered"] for d in decks),
+                            in_review=sum(d["stats"]["in_review"] for d in decks), due=len(due)))
+        return {"profiles": out}
 
     if action == "get_deck":
         deck, cards = s.get_deck(body["deck_id"])

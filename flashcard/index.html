@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>フラッシュ暗記</title>
+<meta name="theme-color" content="#1f3a5f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="フラッシュ暗記">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+:root{
+  --bg:#f4f6fa; --surface:#fff; --ink:#1d2433; --muted:#6b7385; --line:#e3e7ef;
+  --navy:#1f3a5f; --accent:#ff7a45; --accent-soft:#fff1ea; --ok:#1f9d63; --ok-soft:#e6f6ee;
+  --ng:#e0473e; --ng-soft:#fdecea; --chip:#eef1f7; --shadow:0 2px 10px rgba(20,30,60,.07);
+  --radius:14px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",sans-serif;
+  font-size:16px;line-height:1.55}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.hidden{display:none!important}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px}
+header.top{position:sticky;top:0;z-index:20;background:var(--navy);color:#fff;padding:calc(env(safe-area-inset-top) + 10px) 0 10px}
+header.top .wrap{display:flex;align-items:center;gap:10px}
+header.top h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.04em;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who{background:rgba(255,255,255,.14);border:0;color:#fff;border-radius:999px;padding:5px 12px;font-size:14px;white-space:nowrap}
+main{padding:16px 0 110px}
+nav.tabs{position:fixed;bottom:0;left:0;right:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);
+  padding:6px 0 calc(env(safe-area-inset-bottom) + 6px)}
+nav.tabs .wrap{display:flex}
+nav.tabs button{flex:1;background:none;border:0;padding:6px 0;color:var(--muted);font-size:12px;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative}
+nav.tabs button .ic{font-size:22px;line-height:1}
+nav.tabs button.on{color:var(--navy);font-weight:700}
+.badge{position:absolute;top:0;left:calc(50% + 8px);background:var(--ng);color:#fff;border-radius:999px;font-size:11px;padding:0 6px;line-height:18px;min-width:18px}
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:12px}
+h2{font-size:20px;margin:4px 0 12px}
+h3{font-size:16px;margin:0 0 8px}
+.muted{color:var(--muted);font-size:14px}
+.small{font-size:13px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.grow{flex:1;min-width:0}
+.btn{border:0;border-radius:12px;padding:12px 16px;font-weight:700;background:var(--chip);color:var(--ink)}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.navy{background:var(--navy);color:#fff}
+.btn.ghost{background:transparent;border:1px solid var(--line)}
+.btn.danger{background:var(--ng-soft);color:var(--ng)}
+.btn.block{width:100%;display:block}
+.btn:disabled{opacity:.45}
+.btn.sm{padding:7px 12px;font-size:14px;border-radius:10px}
+label.f{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px;font-weight:600}
+input.t,select.t,textarea.t{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff}
+textarea.t{min-height:84px;resize:vertical}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+@media (max-width:480px){.grid3{grid-template-columns:1fr 1fr}}
+.chip{display:inline-block;background:var(--chip);border-radius:999px;padding:2px 10px;font-size:12px;color:#3b4459;white-space:nowrap}
+.chip.new{background:var(--accent);color:#fff;font-weight:700}
+.chip.rev{background:var(--ng-soft);color:var(--ng)}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.fix{background:#fff6d6;color:#8a6500}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.seg{display:flex;background:var(--chip);border-radius:12px;padding:3px;gap:3px}
+.seg button{flex:1;border:0;background:transparent;border-radius:9px;padding:8px 6px;font-size:14px;color:var(--muted)}
+.seg button.on{background:#fff;color:var(--ink);font-weight:700;box-shadow:var(--shadow)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.stat{background:var(--surface);border-radius:12px;box-shadow:var(--shadow);padding:10px;text-align:center}
+.stat b{display:block;font-size:22px;color:var(--navy)}
+.stat span{font-size:12px;color:var(--muted)}
+/* トップ (学習者を選ぶ) */
+.pick{display:grid;gap:14px;margin-top:10px}
+.person{display:flex;align-items:center;gap:16px;background:var(--surface);border:0;border-radius:18px;box-shadow:var(--shadow);padding:20px;text-align:left;width:100%}
+.person .face{font-size:46px;line-height:1;width:64px;height:64px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center}
+.person .nm{font-size:22px;font-weight:800}
+.person .sub{color:var(--muted);font-size:14px}
+/* 教材一覧 */
+.deck{display:block;width:100%;text-align:left;border:0;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px}
+.deck .tt{font-weight:700;font-size:17px;margin:4px 0}
+.bar{height:6px;background:var(--chip);border-radius:3px;overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--ok)}
+/* カード一覧 */
+.qlist{list-style:none;margin:0;padding:0}
+.qlist li{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.qlist li:first-child{border-top:0}
+.qlist input[type=checkbox]{width:22px;height:22px;margin-top:2px;flex:none;accent-color:var(--accent)}
+.qlist .no{color:var(--muted);font-size:13px;width:26px;flex:none;text-align:right;padding-top:2px}
+.qlist .q{font-size:15px}
+.qlist .a{font-weight:700;color:var(--navy);font-size:15px}
+.qlist .a.hide{color:transparent;background:var(--chip);border-radius:6px;user-select:none}
+.qlist .ed{border:0;background:none;color:var(--muted);font-size:18px;padding:0 4px}
+.sticky-act{position:sticky;bottom:78px;z-index:10;background:var(--navy);color:#fff;border-radius:14px;padding:12px;box-shadow:0 6px 20px rgba(0,0,0,.2);margin-top:12px}
+.sticky-act textarea{background:#fff;color:var(--ink);min-height:60px}
+/* 出題 */
+.study{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column}
+.study .head{padding:calc(env(safe-area-inset-top) + 10px) 16px 10px;display:flex;align-items:center;gap:10px}
+.prog{flex:1;height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--accent);transition:width .25s}
+.flash{flex:1;display:flex;flex-direction:column;padding:6px 16px 16px;max-width:760px;width:100%;margin:0 auto;min-height:0}
+.face-card{flex:1;background:var(--surface);border-radius:20px;box-shadow:0 6px 24px rgba(20,30,60,.10);padding:24px 20px;display:flex;flex-direction:column;
+  justify-content:center;align-items:center;text-align:center;overflow:auto;min-height:0;border:0;width:100%}
+.face-card .qq{font-size:22px;font-weight:700;line-height:1.6;white-space:pre-wrap}
+.face-card .qq.big{font-size:40px;letter-spacing:.06em}
+.face-card .aa{margin-top:18px;padding-top:16px;border-top:2px dashed var(--line);width:100%}
+.face-card .aa .ans{font-size:28px;font-weight:800;color:var(--navy);white-space:pre-wrap}
+.face-card .aa .ans.long{font-size:18px;text-align:left}
+.face-card .note{margin-top:10px;color:#3b4459;font-size:15px;white-space:pre-wrap;text-align:left}
+.face-card .ex{margin-top:10px;background:var(--chip);border-radius:10px;padding:10px;font-size:14px;text-align:left;white-space:pre-wrap}
+.tap-hint{color:var(--muted);font-size:14px;margin-top:16px}
+.judge{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.judge button{border:0;border-radius:16px;padding:16px;font-size:20px;font-weight:800}
+.judge .ng{background:var(--ng-soft);color:var(--ng)}
+.judge .ok{background:var(--ok-soft);color:var(--ok)}
+.result{text-align:center;padding:20px 0}
+.result .big{font-size:56px;font-weight:800;color:var(--navy)}
+/* 作る */
+.style-opt{display:block;border:2px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:#fff}
+.style-opt.on{border-color:var(--accent);background:var(--accent-soft)}
+.style-opt input{display:none}
+.style-opt b{display:block}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px;margin-top:10px}
+.thumb{position:relative;border-radius:10px;overflow:hidden;background:var(--chip);aspect-ratio:3/4}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb .lbl{position:absolute;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);color:#fff;font-size:11px;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thumb .x{position:absolute;top:4px;right:4px;border:0;background:rgba(0,0,0,.6);color:#fff;border-radius:50%;width:24px;height:24px;font-size:14px;line-height:24px;padding:0}
+.drop{border:2px dashed #c9d1e0;border-radius:14px;padding:18px;text-align:center;background:#fafbfe}
+.order-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.order-chips button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 10px;font-size:13px}
+.steps{list-style:none;padding:0;margin:10px 0}
+.steps li{padding:6px 0;color:var(--muted)}
+.steps li.now{color:var(--ink);font-weight:700}
+.steps li.done{color:var(--ok)}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite;vertical-align:-3px}
+@keyframes sp{to{transform:rotate(360deg)}}
+/* モーダル */
+.modal{position:fixed;inset:0;z-index:60;background:rgba(15,20,35,.45);display:flex;align-items:flex-end;justify-content:center}
+.modal .sheet{background:var(--surface);width:100%;max-width:640px;border-radius:18px 18px 0 0;padding:18px 16px calc(env(safe-area-inset-bottom) + 18px);max-height:90vh;overflow:auto}
+@media (min-width:700px){.modal{align-items:center}.modal .sheet{border-radius:18px}}
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:#1d2433;color:#fff;padding:10px 16px;border-radius:12px;z-index:80;font-size:14px;max-width:90vw}
+.center{text-align:center}
+.login{max-width:420px;margin:40px auto 0}
+.login .logo{font-size:56px;text-align:center}
+pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius:10px;padding:10px;max-height:60vh;overflow:auto}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <h1 id="hTitle">⚡ フラッシュ暗記</h1>
+    <button class="who hidden" id="hWho" onclick="goTop()"></button>
+  </div>
+</header>
+
+<main><div class="wrap" id="view"></div></main>
+
+<nav class="tabs hidden" id="tabs"><div class="wrap">
+  <button data-tab="decks" onclick="showTab('decks')"><span class="ic">📚</span>教材</button>
+  <button data-tab="review" onclick="showTab('review')"><span class="ic">🔁</span>復習<span class="badge hidden" id="revBadge"></span></button>
+  <button data-tab="make" onclick="showTab('make')"><span class="ic">✨</span>作る</button>
+  <button data-tab="settings" onclick="showTab('settings')"><span class="ic">⚙️</span>設定</button>
+</div></nav>
+
+<div id="studyRoot"></div>
+<div id="modalRoot"></div>
+
+<script>
+'use strict';
+// ------------------------------------------------------------ 定数
+const GRADES = ['小5','小6','中1','中2','中3','高1','高2','高3','その他'];
+const TERMS = ['1学期中間','1学期期末','2学期中間','2学期期末','3学期期末(学年末)','前期中間','前期期末','後期中間','後期期末','小テスト・その他'];
+const SUBJECTS = ['歴史','地理','公民','古文','漢文','現代文・漢字','英語','理科','数学','その他'];
+const STYLES = [
+  ['auto','おまかせ','AIが教材を見て、いちばん合う作り方を選びます'],
+  ['qa','一問一答','問題と答え(模範解答)がのっているプリント・問題集'],
+  ['word','単語型','単語集・用語集（古文単語、英単語、漢字など）。表=単語、裏=意味'],
+  ['predict','テスト予想','授業プリント・参考書・教科書から、テストに出そうな問題をAIが考えます'],
+];
+const ORDER_EXAMPLES = ['人物名を答える問題を多めに','年号も聞いて','記述問題も少し入れて','やさしめに','難しめに','答えに読みがなを付けて','穴埋めの所は全部問題にして','50問くらいで'];
+const API = '/api/flash';
+
+// ------------------------------------------------------------ 状態
+const S = {
+  pass: lsGet('flash_pass') || '',
+  profile: null, profiles: [],
+  tab: 'decks', decks: [], deckFilter: {grade:'',term:'',subject:''},
+  deck: null, cards: [], checked: new Set(), hideAns: false,
+  review: [],
+  make: null,
+};
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function lsSet(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}}
+
+// ------------------------------------------------------------ 共通
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg, ms=2600){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),ms)}
+async function api(action, data={}){
+  const r = await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','X-Flash-Pass':S.pass},body:JSON.stringify({action,...data})});
+  let j={}; try{j=await r.json()}catch(e){}
+  if(!r.ok){
+    if(r.status===413) throw new Error('データが大きすぎました。写真の枚数を減らしてお試しください。');
+    if(r.status===401){logout(true)}
+    throw new Error(j.error||('通信エラー ('+r.status+')'));
+  }
+  return j;
+}
+function opts(list, sel, blank){return (blank!=null?`<option value="">${esc(blank)}</option>`:'')+list.map(v=>`<option ${v===sel?'selected':''}>${esc(v)}</option>`).join('')}
+function fmtDate(s){if(!s)return '';const d=new Date(s);return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`}
+function daysAgo(s){return (Date.now()-new Date(s).getTime())/864e5}
+function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function setView(html){$('#view').innerHTML=html;window.scrollTo(0,0)}
+function loading(msg='読み込み中…'){setView(`<p class="center muted" style="margin-top:40px"><span class="spinner"></span> ${esc(msg)}</p>`)}
+function isDue(c){const d=c.progress&&c.progress.next_due_at;return !d||new Date(d)<=new Date()}
+
+// ------------------------------------------------------------ 起動・ログイン
+async function boot(){
+  loading();
+  let st;
+  try{ st = await api('status') }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
+  if(!st.setup) return renderSetup();
+  if(!st.ok) return renderLogin();
+  await goTop();
+}
+function renderSetup(){
+  hideChrome();
+  setView(`<div class="login card">
+    <div class="logo">⚡</div><h2 class="center">はじめての設定</h2>
+    <p class="muted">家族みんなで使う「合言葉」を決めてください（6文字以上）。この合言葉を知っている人だけが使えます。</p>
+    <label class="f">家族の合言葉</label><input class="t" id="p1" type="password" autocomplete="new-password">
+    <label class="f">もう一度</label><input class="t" id="p2" type="password" autocomplete="new-password">
+    <button class="btn primary block" style="margin-top:16px" onclick="doSetup()">決定</button></div>`);
+}
+async function doSetup(){
+  const a=$('#p1').value, b=$('#p2').value;
+  if(a.length<6) return toast('6文字以上にしてください');
+  if(a!==b) return toast('2回の入力が違います');
+  try{ await api('setup',{family_pass:a}); S.pass=a; lsSet('flash_pass',a); toast('設定しました'); goTop() }catch(e){toast(e.message)}
+}
+function renderLogin(){
+  hideChrome();
+  setView(`<div class="login card">
+    <div class="logo">⚡</div><h2 class="center">フラッシュ暗記</h2>
+    <label class="f">家族の合言葉</label>
+    <input class="t" id="lp" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn primary block" style="margin-top:16px" onclick="doLogin()">はいる</button></div>`);
+  setTimeout(()=>$('#lp')&&$('#lp').focus(),50);
+}
+async function doLogin(){
+  S.pass=$('#lp').value;
+  try{ const st=await api('status'); if(!st.ok){toast('合言葉が違います');return} lsSet('flash_pass',S.pass); goTop() }catch(e){toast(e.message)}
+}
+function logout(silent){S.pass='';lsSet('flash_pass',null);lsSet('flash_profile',null);S.profile=null;if(!silent)toast('ログアウトしました');renderLogin()}
+function hideChrome(){$('#tabs').classList.add('hidden');$('#hWho').classList.add('hidden');$('#hTitle').textContent='⚡ フラッシュ暗記'}
+
+// ------------------------------------------------------------ トップ: 学習者を選ぶ
+async function goTop(){
+  hideChrome(); S.profile=null; lsSet('flash_profile',null);
+  loading();
+  try{ const r=await api('overview'); S.profiles=r.profiles }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
+  setView(`<h2>だれが使う？</h2><div class="pick">${S.profiles.map(p=>`
+    <button class="person" onclick="enterProfile(${p.id})">
+      <span class="face">${esc(p.emoji||'🙂')}</span>
+      <span class="grow"><span class="nm">${esc(p.name)}</span><br>
+        <span class="sub">教材 ${p.deck_count}つ ・ カード ${p.card_count}枚 ・ 覚えた ${p.mastered}枚</span><br>
+        ${p.due?`<span class="chip rev">今日の復習 ${p.due}枚</span>`:`<span class="chip ok">復習なし</span>`}
+      </span><span style="font-size:24px;color:var(--muted)">›</span>
+    </button>`).join('')}</div>
+    <p class="center" style="margin-top:28px"><button class="btn ghost sm" onclick="logout()">ログアウト</button></p>`);
+}
+function enterProfile(id){
+  S.profile=S.profiles.find(p=>p.id===id); if(!S.profile) return goTop();
+  lsSet('flash_profile',String(id));
+  $('#hWho').textContent=`${S.profile.emoji||'🙂'} ${S.profile.name} ▾`; $('#hWho').classList.remove('hidden');
+  $('#hTitle').textContent='⚡ フラッシュ暗記';
+  $('#tabs').classList.remove('hidden');
+  showTab('decks');
+}
+function showTab(t){
+  S.tab=t;
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
+  if(t==='decks') renderDecks();
+  if(t==='review') renderReview();
+  if(t==='make') renderMake();
+  if(t==='settings') renderSettings();
+}
+async function refreshBadge(){
+  try{ const r=await api('review_list',{profile_id:S.profile.id}); S.review=r.cards; const n=r.cards.filter(isDue).length;
+    const b=$('#revBadge'); b.textContent=n; b.classList.toggle('hidden',!n) }catch(e){}
+}
+
+// ------------------------------------------------------------ 教材一覧
+async function renderDecks(){
+  loading();
+  try{ const r=await api('list_decks',{profile_id:S.profile.id}); S.decks=r.decks }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
+  refreshBadge();
+  drawDecks();
+}
+function drawDecks(){
+  const f=S.deckFilter, D=S.decks;
+  const uniq=k=>[...new Set(D.map(d=>d[k]).filter(Boolean))];
+  const list=D.filter(d=>(!f.grade||d.grade===f.grade)&&(!f.term||d.term===f.term)&&(!f.subject||d.subject===f.subject));
+  const cards=D.reduce((s,d)=>s+d.card_count,0), mastered=D.reduce((s,d)=>s+d.stats.mastered,0);
+  const newestId=D.length?D[0].id:null;
+  setView(`
+    <div class="stats">
+      <div class="stat"><b>${D.length}</b><span>教材</span></div>
+      <div class="stat"><b>${cards}</b><span>できたカード</span></div>
+      <div class="stat"><b>${mastered}</b><span>覚えたカード</span></div>
+    </div>
+    ${D.length?`<div class="grid3" style="margin-bottom:12px">
+      <select class="t" onchange="S.deckFilter.grade=this.value;drawDecks()">${opts(uniq('grade'),f.grade,'学年: すべて')}</select>
+      <select class="t" onchange="S.deckFilter.term=this.value;drawDecks()">${opts(uniq('term'),f.term,'テスト: すべて')}</select>
+      <select class="t" onchange="S.deckFilter.subject=this.value;drawDecks()">${opts(uniq('subject'),f.subject,'科目: すべて')}</select>
+    </div>`:''}
+    ${list.map(d=>{
+      const st=d.stats, pct=d.card_count?Math.round(st.mastered/d.card_count*100):0;
+      const isNew=d.id===newestId||daysAgo(d.created_at)<3;
+      return `<button class="deck" onclick="openDeck(${d.id})">
+        <div class="chips">${isNew?'<span class="chip new">NEW</span>':''}
+          ${d.subject?`<span class="chip">${esc(d.subject)}</span>`:''}${d.grade?`<span class="chip">${esc(d.grade)}</span>`:''}${d.term?`<span class="chip">${esc(d.term)}</span>`:''}
+          ${st.in_review?`<span class="chip rev">復習 ${st.in_review}</span>`:''}</div>
+        <div class="tt">${esc(d.title)}</div>
+        <div class="muted small">${d.card_kind==='word'?'単語型':'問題型'} ・ カード ${d.card_count}枚 ・ 覚えた ${st.mastered}枚 ・ ${fmtDate(d.created_at)}</div>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+      </button>`}).join('')}
+    ${!D.length?`<div class="card center"><p>まだ教材がありません。</p><button class="btn primary" onclick="showTab('make')">✨ 最初の教材を作る</button></div>`:''}
+    ${D.length&&!list.length?'<p class="muted center">この条件の教材はありません</p>':''}
+  `);
+}
+
+// ------------------------------------------------------------ 教材の中身
+async function openDeck(id){
+  loading();
+  try{ const r=await api('get_deck',{deck_id:id}); S.deck=r.deck; S.cards=r.cards; S.checked=new Set() }catch(e){ toast(e.message); return renderDecks() }
+  drawDeck();
+}
+function drawDeck(){
+  const d=S.deck, C=S.cards, word=d.card_kind==='word';
+  const mastered=C.filter(c=>c.progress&&c.progress.correct_count>0&&!c.progress.in_review).length;
+  const wrongEver=C.filter(c=>c.progress&&c.progress.wrong_count>0).length;
+  const fixCnt=C.filter(c=>c.needs_regen).length;
+  const so=S.studyOpts||(S.studyOpts={order:'seq',range:'all',reverse:false});
+  setView(`
+    <p><button class="btn ghost sm" onclick="showTab('decks')">‹ 教材一覧</button></p>
+    <div class="card">
+      <div class="chips">${d.subject?`<span class="chip">${esc(d.subject)}</span>`:''}${d.grade?`<span class="chip">${esc(d.grade)}</span>`:''}${d.term?`<span class="chip">${esc(d.term)}</span>`:''}<span class="chip">${word?'単語型':'問題型'}</span></div>
+      <h2 style="margin:8px 0 4px">${esc(d.title)}</h2>
+      <div class="muted small">カード ${C.length}枚 ・ 覚えた ${mastered}枚 ・ ${fmtDate(d.created_at)} 登録</div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn sm" onclick="editDeck()">✏️ 教材の情報</button>
+        <button class="btn sm" onclick="addCard()">＋ カード追加</button>
+        ${d.source_text?`<button class="btn sm" onclick="showSource()">📄 読み取った内容</button>`:''}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>▶ 出題する</h3>
+      <label class="f">出す順番</label>
+      <div class="seg" id="segOrder">
+        <button class="${so.order==='seq'?'on':''}" onclick="setSO('order','seq')">${d.subject==='歴史'?'時系列（順番通り）':'順番通り'}</button>
+        <button class="${so.order==='rand'?'on':''}" onclick="setSO('order','rand')">ランダム</button>
+      </div>
+      <label class="f">出す範囲</label>
+      <div class="seg">
+        <button class="${so.range==='all'?'on':''}" onclick="setSO('range','all')">全部 (${C.length})</button>
+        <button class="${so.range==='notyet'?'on':''}" onclick="setSO('range','notyet')">まだ覚えてない (${C.length-mastered})</button>
+        <button class="${so.range==='wrong'?'on':''}" onclick="setSO('range','wrong')">間違えた (${wrongEver})</button>
+      </div>
+      ${word?`<label class="f">向き</label><div class="seg">
+        <button class="${!so.reverse?'on':''}" onclick="setSO('reverse',false)">単語 → 意味</button>
+        <button class="${so.reverse?'on':''}" onclick="setSO('reverse',true)">意味 → 単語</button></div>`:''}
+      <button class="btn primary block" style="margin-top:14px;font-size:18px" onclick="startDeckStudy()">はじめる</button>
+    </div>
+
+    <div class="card">
+      <div class="row"><h3 class="grow" style="margin:0">問題の一覧 (${C.length})</h3>
+        <button class="btn sm" onclick="S.hideAns=!S.hideAns;drawDeck()">${S.hideAns?'答えを見せる':'答えを隠す'}</button></div>
+      <p class="muted small" style="margin:6px 0 0">作り直してほしい問題にチェック → 下のボタンで作り直せます。✏️で手直しもできます。${fixCnt?`（作り直し待ち ${fixCnt}）`:''}</p>
+      <div class="row small" style="margin:6px 0"><button class="btn sm ghost" onclick="checkAll(true)">全部チェック</button><button class="btn sm ghost" onclick="checkAll(false)">チェックを外す</button></div>
+      <ul class="qlist">${C.map((c,i)=>{
+        const p=c.progress||{};
+        return `<li>
+          <input type="checkbox" ${S.checked.has(c.id)?'checked':''} onchange="toggleCheck(${c.id},this.checked)">
+          <span class="no">${i+1}</span>
+          <div class="grow">
+            <div class="q">${esc(c.question)}</div>
+            <div class="a ${S.hideAns?'hide':''}">${esc(c.answer)}</div>
+            <div class="chips" style="margin-top:3px">${c.tag?`<span class="chip">${esc(c.tag)}</span>`:''}
+              ${p.correct_count?`<span class="chip ok">○${p.correct_count}</span>`:''}${p.wrong_count?`<span class="chip rev">×${p.wrong_count}</span>`:''}
+              ${p.in_review?'<span class="chip rev">復習中</span>':''}${c.needs_regen?'<span class="chip fix">作り直し待ち</span>':''}</div>
+          </div>
+          <button class="ed" title="手直し" onclick="editCard(${c.id})">✏️</button>
+        </li>`}).join('')}</ul>
+    </div>
+    <div id="actBar"></div>
+    <p class="center"><button class="btn danger sm" onclick="deleteDeck()">この教材を削除</button></p>
+  `);
+  drawActBar();
+}
+function setSO(k,v){S.studyOpts[k]=v;const y=window.scrollY;drawDeck();window.scrollTo(0,y)}
+function toggleCheck(id,on){on?S.checked.add(id):S.checked.delete(id);drawActBar()}
+function checkAll(on){S.checked=on?new Set(S.cards.map(c=>c.id)):new Set();const y=window.scrollY;drawDeck();window.scrollTo(0,y)}
+function drawActBar(){
+  const n=S.checked.size, el=$('#actBar'); if(!el) return;
+  if(!n){el.innerHTML='';return}
+  el.innerHTML=`<div class="sticky-act">
+    <div class="row" style="margin-bottom:8px"><b class="grow">${n}問を選択中</b><button class="btn sm danger" onclick="deleteChecked()">削除</button></div>
+    <textarea class="t" id="regenOrder" placeholder="作り直しの注文（例：答えが人物名になるように／もっと易しく／読みがなも付けて）"></textarea>
+    <button class="btn primary block" style="margin-top:8px" onclick="regenerate()">🔄 チェックした${n}問をAIで作り直す</button></div>`;
+}
+async function regenerate(){
+  const ids=[...S.checked], ins=($('#regenOrder')||{}).value||'';
+  const bar=$('#actBar'); bar.innerHTML=`<div class="sticky-act"><span class="spinner"></span> ${ids.length}問を作り直しています…（1分ほどかかります）</div>`;
+  try{
+    for(const id of ids) api('update_card',{card_id:id,needs_regen:true}).catch(()=>{});
+    const r=await api('regenerate',{deck_id:S.deck.id,card_ids:ids,instructions:ins});
+    toast(`${r.updated}問を作り直しました`); openDeck(S.deck.id);
+  }catch(e){toast(e.message,5000);drawActBar()}
+}
+async function deleteChecked(){
+  if(!confirm(`${S.checked.size}問を削除します。よろしいですか？`)) return;
+  try{ await api('delete_cards',{card_ids:[...S.checked]}); toast('削除しました'); openDeck(S.deck.id) }catch(e){toast(e.message)}
+}
+async function deleteDeck(){
+  if(!confirm(`「${S.deck.title}」を削除します。成績も消えます。よろしいですか？`)) return;
+  try{ await api('delete_deck',{deck_id:S.deck.id}); toast('削除しました'); showTab('decks') }catch(e){toast(e.message)}
+}
+function modal(html){$('#modalRoot').innerHTML=`<div class="modal" onclick="if(event.target===this)closeModal()"><div class="sheet">${html}</div></div>`}
+function closeModal(){$('#modalRoot').innerHTML=''}
+function editCard(id){
+  const c=S.cards.find(x=>x.id===id);
+  modal(`<h3>カードを手直し</h3>
+    <label class="f">問題（表）</label><textarea class="t" id="ecQ">${esc(c.question)}</textarea>
+    <label class="f">答え（裏）</label><textarea class="t" id="ecA" style="min-height:60px">${esc(c.answer)}</textarea>
+    <label class="f">ひとこと解説・読みがな</label><textarea class="t" id="ecN" style="min-height:60px">${esc(c.note)}</textarea>
+    <label class="f">例文</label><textarea class="t" id="ecE" style="min-height:60px">${esc(c.example)}</textarea>
+    <label class="f">ラベル（時代・品詞など）</label><input class="t" id="ecT" value="${esc(c.tag)}">
+    <div class="row" style="margin-top:14px"><button class="btn ghost grow" onclick="closeModal()">やめる</button><button class="btn primary grow" onclick="saveCard(${id})">保存</button></div>`);
+}
+async function saveCard(id){
+  try{ await api('update_card',{card_id:id,question:$('#ecQ').value,answer:$('#ecA').value,note:$('#ecN').value,example:$('#ecE').value,tag:$('#ecT').value,needs_regen:false});
+    closeModal(); toast('保存しました'); openDeck(S.deck.id) }catch(e){toast(e.message)}
+}
+function addCard(){
+  modal(`<h3>カードを1枚追加</h3>
+    <label class="f">問題（表）</label><textarea class="t" id="acQ"></textarea>
+    <label class="f">答え（裏）</label><textarea class="t" id="acA" style="min-height:60px"></textarea>
+    <label class="f">ひとこと解説・読みがな（なくてもOK）</label><input class="t" id="acN">
+    <div class="row" style="margin-top:14px"><button class="btn ghost grow" onclick="closeModal()">やめる</button><button class="btn primary grow" onclick="saveNewCard()">追加</button></div>`);
+}
+async function saveNewCard(){
+  const q=$('#acQ').value.trim(), a=$('#acA').value.trim(); if(!q||!a) return toast('問題と答えを入れてください');
+  try{ await api('add_card',{deck_id:S.deck.id,question:q,answer:a,note:$('#acN').value}); closeModal(); openDeck(S.deck.id) }catch(e){toast(e.message)}
+}
+function editDeck(){
+  const d=S.deck;
+  modal(`<h3>教材の情報</h3>
+    <label class="f">教材の名前</label><input class="t" id="edT" value="${esc(d.title)}">
+    <div class="grid3">
+      <div><label class="f">学年</label><select class="t" id="edG">${opts(GRADES,d.grade,'—')}</select></div>
+      <div><label class="f">テスト</label><select class="t" id="edM">${opts(TERMS,d.term,'—')}</select></div>
+      <div><label class="f">科目</label><select class="t" id="edS">${opts(SUBJECTS,d.subject,'—')}</select></div>
+    </div>
+    <label class="f">カードの種類</label><select class="t" id="edK"><option value="qa" ${d.card_kind!=='word'?'selected':''}>問題型</option><option value="word" ${d.card_kind==='word'?'selected':''}>単語型（意味→単語の向きも使える）</option></select>
+    <label class="f">持ち主</label><select class="t" id="edP">${S.profiles.map(p=>`<option value="${p.id}" ${p.id===d.profile_id?'selected':''}>${esc(p.emoji)} ${esc(p.name)}</option>`).join('')}</select>
+    <div class="row" style="margin-top:14px"><button class="btn ghost grow" onclick="closeModal()">やめる</button><button class="btn primary grow" onclick="saveDeck()">保存</button></div>`);
+}
+async function saveDeck(){
+  try{ await api('update_deck',{deck_id:S.deck.id,title:$('#edT').value||'無題の教材',grade:$('#edG').value,term:$('#edM').value,subject:$('#edS').value,card_kind:$('#edK').value,profile_id:+$('#edP').value});
+    closeModal(); toast('保存しました'); +$('#edP').value!==S.profile.id?showTab('decks'):openDeck(S.deck.id) }catch(e){toast(e.message)}
+}
+function showSource(){modal(`<h3>写真・PDFから読み取った内容</h3><pre class="src">${esc(S.deck.source_text)}</pre><button class="btn block" onclick="closeModal()">閉じる</button>`)}
+
+// ------------------------------------------------------------ 出題 (フラッシュカード)
+function startDeckStudy(){
+  const so=S.studyOpts; let list=S.cards.slice();
+  if(so.range==='notyet') list=list.filter(c=>!(c.progress&&c.progress.correct_count>0&&!c.progress.in_review));
+  if(so.range==='wrong') list=list.filter(c=>c.progress&&c.progress.wrong_count>0);
+  if(!list.length) return toast('出せる問題がありません');
+  if(so.order==='rand') list=shuffle(list);
+  startStudy(list,{mode:'normal',reverse:S.deck.card_kind==='word'&&so.reverse,title:S.deck.title,word:S.deck.card_kind==='word',back:()=>openDeck(S.deck.id)});
+}
+let ST=null;
+function startStudy(cards,o){
+  ST={cards,i:0,shown:false,results:[],...o};
+  document.body.style.overflow='hidden';
+  drawStudy();
+}
+function drawStudy(){
+  const root=$('#studyRoot');
+  if(!ST){root.innerHTML='';document.body.style.overflow='';return}
+  const n=ST.cards.length;
+  if(ST.i>=n) return drawResult();
+  const c=ST.cards[ST.i], word=ST.word||(c.deck&&c.deck.card_kind==='word');
+  let q=c.question, a=c.answer;
+  if(ST.reverse){q=c.answer;a=c.question}
+  const bigQ=word&&!ST.reverse&&q.length<=10, longA=a.length>40;
+  root.innerHTML=`<div class="study">
+    <div class="head"><button class="btn sm ghost" onclick="quitStudy()">✕</button>
+      <div class="prog"><i style="width:${ST.i/n*100}%"></i></div><b>${ST.i+1}/${n}</b></div>
+    <div class="flash">
+      <div class="muted small" style="margin-bottom:6px">${esc(ST.mode==='review'?'🔁 復習フラッシュ':ST.title)}${c.deck?` ・ ${esc(c.deck.title)}`:''}</div>
+      <button class="face-card" onclick="${ST.shown?'':'flip()'}">
+        ${c.tag?`<span class="chip" style="margin-bottom:10px">${esc(c.tag)}</span>`:''}
+        <div class="qq ${bigQ?'big':''}">${esc(q)}</div>
+        ${ST.shown?`<div class="aa"><div class="ans ${longA?'long':''}">${esc(a)}</div>
+          ${c.note?`<div class="note">💡 ${esc(c.note)}</div>`:''}
+          ${c.example?`<div class="ex">${esc(c.example)}</div>`:''}</div>`
+          :`<div class="tap-hint">タップして答えを見る</div>`}
+      </button>
+      ${ST.shown?`<div class="judge"><button class="ng" onclick="judge(false)">✕ まちがい</button><button class="ok" onclick="judge(true)">○ せいかい</button></div>`
+        :`<button class="btn navy block" style="margin-top:14px;padding:16px;font-size:18px" onclick="flip()">答えを見る</button>`}
+    </div></div>`;
+}
+function flip(){ST.shown=true;drawStudy()}
+function judge(ok){
+  const c=ST.cards[ST.i];
+  ST.results.push({card:c,ok});
+  api('answer',{card_id:c.id,correct:ok,mode:ST.mode}).catch(e=>toast('記録できませんでした: '+e.message));
+  ST.i++; ST.shown=false; drawStudy();
+}
+function drawResult(){
+  const ok=ST.results.filter(r=>r.ok).length, n=ST.results.length, wrong=ST.results.filter(r=>!r.ok).map(r=>r.card);
+  const pct=n?Math.round(ok/n*100):0;
+  $('#studyRoot').innerHTML=`<div class="study"><div class="flash" style="justify-content:center">
+    <div class="card result">
+      <div style="font-size:44px">${pct===100?'🎉':pct>=70?'👏':'💪'}</div>
+      <div class="big">${ok} / ${n}</div><div class="muted">正解率 ${pct}%</div>
+      ${wrong.length?`<p class="small" style="margin-top:14px">間違えた${wrong.length}問は「🔁 復習」に入りました。</p>`:'<p>全問正解！</p>'}
+      ${ST.mode==='review'&&ok?`<p class="small muted">復習で3回続けて正解すると「卒業」です。</p>`:''}
+      <div style="display:grid;gap:10px;margin-top:16px">
+        ${wrong.length?`<button class="btn primary block" onclick="retryWrong()">間違えた${wrong.length}問をもう一度</button>`:''}
+        <button class="btn block" onclick="quitStudy()">もどる</button>
+      </div></div></div></div>`;
+}
+function retryWrong(){const w=ST.results.filter(r=>!r.ok).map(r=>r.card);ST={...ST,cards:shuffle(w),i:0,shown:false,results:[]};drawStudy()}
+function quitStudy(){const back=ST&&ST.back;ST=null;drawStudy();if(back)back()}
+document.addEventListener('keydown',e=>{
+  if(!ST||ST.i>=ST.cards.length) return;
+  if(!ST.shown&&(e.key===' '||e.key==='Enter')){e.preventDefault();flip()}
+  else if(ST.shown&&(e.key==='1'||e.key==='ArrowLeft')) judge(false);
+  else if(ST.shown&&(e.key==='2'||e.key==='ArrowRight')) judge(true);
+});
+
+// ------------------------------------------------------------ 復習フラッシュ
+async function renderReview(){
+  loading();
+  try{ const r=await api('review_list',{profile_id:S.profile.id}); S.review=r.cards }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
+  const all=S.review, due=all.filter(isDue);
+  const b=$('#revBadge'); b.textContent=due.length; b.classList.toggle('hidden',!due.length);
+  const subs=[...new Set(all.map(c=>c.deck&&c.deck.subject).filter(Boolean))];
+  S.revSub=S.revSub&&subs.includes(S.revSub)?S.revSub:'';
+  const pick=l=>S.revSub?l.filter(c=>c.deck&&c.deck.subject===S.revSub):l;
+  setView(`<h2>🔁 復習フラッシュ</h2>
+    <p class="muted small">間違えた問題がここにたまります。復習で<b>3回続けて正解</b>すると卒業（1日後→3日後→卒業）。</p>
+    <div class="stats">
+      <div class="stat"><b>${due.length}</b><span>今日の復習</span></div>
+      <div class="stat"><b>${all.length}</b><span>復習中ぜんぶ</span></div>
+      <div class="stat"><b>${all.length-due.length}</b><span>あとで出る</span></div>
+    </div>
+    ${all.length?`
+    ${subs.length>1?`<label class="f">科目</label><select class="t" onchange="S.revSub=this.value;renderReview()">${opts(subs,S.revSub,'すべての科目')}</select>`:''}
+    <div style="display:grid;gap:10px;margin:14px 0">
+      <button class="btn primary block" style="font-size:18px" ${pick(due).length?'':'disabled'} onclick="startReview(true)">今日の復習をはじめる (${pick(due).length})</button>
+      <button class="btn block" onclick="startReview(false)">復習中をぜんぶやる (${pick(all).length})</button>
+    </div>
+    <div class="card"><h3>復習中の問題</h3><ul class="qlist">${pick(all).map(c=>{const s=c.progress.review_streak||0;return `<li>
+      <div class="grow"><div class="q">${esc(c.question)}</div><div class="a">${esc(c.answer)}</div>
+      <div class="chips" style="margin-top:3px"><span class="chip">${esc(c.deck.title)}</span><span class="chip ${isDue(c)?'rev':''}">${isDue(c)?'今日':fmtDate(c.progress.next_due_at)+'に出る'}</span>
+      <span class="chip ok">${'●'.repeat(s)}${'○'.repeat(3-s)} 卒業まであと${3-s}回</span></div></div></li>`}).join('')}</ul></div>`
+    :`<div class="card center"><p style="font-size:40px;margin:0">🎉</p><p>復習する問題はありません。</p></div>`}`);
+}
+function startReview(onlyDue){
+  let l=onlyDue?S.review.filter(isDue):S.review.slice();
+  if(S.revSub) l=l.filter(c=>c.deck&&c.deck.subject===S.revSub);
+  if(!l.length) return toast('問題がありません');
+  startStudy(shuffle(l),{mode:'review',title:'復習',back:renderReview});
+}
+
+// ------------------------------------------------------------ 作る
+function renderMake(){
+  if(S.make&&S.make.running) return drawMakeProgress();
+  const last=JSON.parse(lsGet('flash_last_'+S.profile.id)||'{}');
+  S.make=S.make||{files:[],style:'auto',grade:last.grade||'',term:last.term||'',subject:last.subject||'',useText:false};
+  const m=S.make;
+  setView(`<h2>✨ 教材から問題を作る</h2>
+    <p class="muted small">${esc(S.profile.emoji)} ${esc(S.profile.name)} の教材として登録します。</p>
+    <div class="card">
+      <h3>① どの教材？</h3>
+      <div class="grid3">
+        <div><label class="f">学年</label><select class="t" id="mkG">${opts(GRADES,m.grade,'—')}</select></div>
+        <div><label class="f">テスト</label><select class="t" id="mkM">${opts(TERMS,m.term,'—')}</select></div>
+        <div><label class="f">科目</label><select class="t" id="mkS">${opts(SUBJECTS,m.subject,'—')}</select></div>
+      </div>
+      <label class="f">教材の名前（空ならAIが付けます）</label><input class="t" id="mkT" placeholder="例：江戸時代③④" value="${esc(m.title||'')}">
+    </div>
+    <div class="card">
+      <h3>② 写真・PDF</h3>
+      <div class="seg" style="margin-bottom:10px"><button class="${!m.useText?'on':''}" onclick="mkSave();S.make.useText=false;renderMake()">📷 写真・PDF</button><button class="${m.useText?'on':''}" onclick="mkSave();S.make.useText=true;renderMake()">⌨️ 文章を貼る</button></div>
+      ${m.useText?`<textarea class="t" id="mkText" style="min-height:160px" placeholder="教材の文章をここに貼り付け">${esc(m.text||'')}</textarea>`:`
+      <div class="drop">
+        <div class="row" style="justify-content:center">
+          <label class="btn navy">📷 カメラで撮る<input type="file" accept="image/*" capture="environment" multiple class="hidden" onchange="addFiles(this.files);this.value=''"></label>
+          <label class="btn">🖼️ 写真・PDFを選ぶ<input type="file" accept="image/*,application/pdf" multiple class="hidden" onchange="addFiles(this.files);this.value=''"></label>
+        </div>
+        <p class="muted small" style="margin:8px 0 0">何枚でもOK。PDFは1ページずつ読み取ります。</p>
+      </div>
+      <div class="thumbs" id="thumbs"></div>`}
+    </div>
+    <div class="card">
+      <h3>③ 問題の作り方</h3>
+      ${STYLES.map(([k,t,d])=>`<label class="style-opt ${m.style===k?'on':''}"><input type="radio" name="sty" value="${k}" ${m.style===k?'checked':''} onchange="mkSave();S.make.style='${k}';renderMake()"><b>${t}</b><span class="muted small">${d}</span></label>`).join('')}
+      ${['auto','predict'].includes(m.style)?`<label class="row small" style="margin-top:6px"><input type="checkbox" id="mkW" ${m.written?'checked':''}> 記述問題（説明しよう系）も入れる</label>`:''}
+      ${['auto','word'].includes(m.style)?`<label class="row small" style="margin-top:6px"><input type="checkbox" id="mkR" ${m.related?'checked':''}> 関連語・類義語も別のカードにする（単語型）</label>`:''}
+      <label class="f">枚数</label>
+      <select class="t" id="mkC">${[['auto','おまかせ（重要なところは全部）'],['10','10枚くらい'],['20','20枚くらい'],['30','30枚くらい'],['50','50枚くらい'],['80','80枚くらい']].map(([v,t])=>`<option value="${v}" ${String(m.count||'auto')===v?'selected':''}>${t}</option>`).join('')}</select>
+    </div>
+    <div class="card">
+      <h3>④ AIへの注文 <span class="muted small">（なくてもOK）</span></h3>
+      <textarea class="t" id="mkO" placeholder="例：人物名を答える問題を多めに。年号も聞いて。">${esc(m.order||'')}</textarea>
+      <div class="order-chips">${ORDER_EXAMPLES.map(t=>`<button onclick="addOrder('${t}')">＋${t}</button>`).join('')}</div>
+    </div>
+    <button class="btn primary block" style="font-size:18px;padding:16px" onclick="runMake()">✨ 問題を作る</button>
+    <p class="muted small center">写真の枚数によって1〜3分ほどかかります。</p>`);
+  if(!m.useText) drawThumbs();
+}
+function mkSave(){
+  const m=S.make, v=id=>{const e=$(id);return e?e.value:undefined};
+  if($('#mkG')){m.grade=v('#mkG');m.term=v('#mkM');m.subject=v('#mkS');m.title=v('#mkT');m.count=v('#mkC');m.order=v('#mkO')}
+  if($('#mkText')) m.text=v('#mkText');
+  if($('#mkW')) m.written=$('#mkW').checked;
+  if($('#mkR')) m.related=$('#mkR').checked;
+}
+function addOrder(t){const o=$('#mkO');o.value=(o.value.trim()?o.value.trim()+'\n':'')+t}
+function drawThumbs(){
+  const el=$('#thumbs'); if(!el) return;
+  el.innerHTML=S.make.files.map((f,i)=>`<div class="thumb">${f.thumb?`<img src="${f.thumb}" alt="">`:'<div class="center" style="padding-top:30px;font-size:30px">📄</div>'}
+    <div class="lbl">${esc(f.label)}</div><button class="x" onclick="S.make.files.splice(${i},1);drawThumbs()">×</button></div>`).join('');
+}
+async function addFiles(list){
+  for(const file of list){
+    if(file.type==='application/pdf'||/\.pdf$/i.test(file.name)){
+      S.make.files.push({kind:'pdf',file,label:file.name,thumb:null});
+    }else if(file.type.startsWith('image/')||/\.(heic|jpe?g|png|webp)$/i.test(file.name)){
+      const entry={kind:'img',file,label:file.name,thumb:null};
+      S.make.files.push(entry);
+      try{entry.thumb=await fileToJpeg(file,240,0.7)}catch(e){}
+    }
+  }
+  drawThumbs();
+}
+function loadImage(src){return new Promise((ok,ng)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=()=>ng(new Error('画像を読み込めませんでした'));im.src=src})}
+async function fileToJpeg(file,maxSide=1600,q=0.82){
+  const url=URL.createObjectURL(file);
+  try{const im=await loadImage(url);return drawToJpeg(im,im.naturalWidth,im.naturalHeight,maxSide,q)}finally{URL.revokeObjectURL(url)}
+}
+function drawToJpeg(src,w,h,maxSide,q){
+  const s=Math.min(1,maxSide/Math.max(w,h)); const c=document.createElement('canvas');
+  c.width=Math.round(w*s);c.height=Math.round(h*s);const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(src,0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg',q);
+}
+let pdfjsReady=null;
+function loadPdfJs(){
+  if(pdfjsReady) return pdfjsReady;
+  pdfjsReady=new Promise((ok,ng)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=()=>{window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';ok(window.pdfjsLib)};
+    s.onerror=()=>{pdfjsReady=null;ng(new Error('PDFを読む部品を読み込めませんでした'))};document.head.appendChild(s)});
+  return pdfjsReady;
+}
+async function pdfToJpegs(file,onPage){
+  const lib=await loadPdfJs(); const pdf=await lib.getDocument({data:await file.arrayBuffer()}).promise; const out=[];
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p); const vp0=page.getViewport({scale:1}); const scale=Math.min(3,1800/Math.max(vp0.width,vp0.height));
+    const vp=page.getViewport({scale}); const c=document.createElement('canvas'); c.width=vp.width; c.height=vp.height;
+    const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height);
+    await page.render({canvasContext:g,viewport:vp}).promise;
+    out.push(drawToJpeg(c,c.width,c.height,1600,0.82)); onPage&&onPage(p,pdf.numPages);
+  }
+  return out;
+}
+function drawMakeProgress(){
+  const m=S.make;
+  const el=s=>m.step===s?'now':(m.doneSteps||[]).includes(s)?'done':'';
+  setView(`<h2>✨ 問題を作っています</h2><div class="card">
+    <ul class="steps">
+      <li class="${el('prep')}">${el('prep')==='done'?'✅':el('prep')==='now'?'<span class="spinner"></span>':'・'} 写真・PDFを準備</li>
+      <li class="${el('read')}">${el('read')==='done'?'✅':el('read')==='now'?'<span class="spinner"></span>':'・'} 教材を読み取り ${m.readMsg||''}</li>
+      <li class="${el('gen')}">${el('gen')==='done'?'✅':el('gen')==='now'?'<span class="spinner"></span>':'・'} AIが問題を作成</li>
+      <li class="${el('save')}">${el('save')==='done'?'✅':el('save')==='now'?'<span class="spinner"></span>':'・'} 保存</li>
+    </ul>
+    <p class="muted small">${esc(m.msg||'')}</p><p class="muted small">この画面のままお待ちください（${m.sec||0}秒）</p></div>`);
+}
+async function runMake(){
+  mkSave(); const m=S.make;
+  if(m.useText){ if(!(m.text||'').trim()) return toast('教材の文章を貼ってください') }
+  else if(!m.files.length) return toast('写真かPDFを追加してください');
+  lsSet('flash_last_'+S.profile.id,JSON.stringify({grade:m.grade,term:m.term,subject:m.subject}));
+  m.running=true; m.doneSteps=[]; m.step='prep'; m.sec=0; m.msg=''; m.readMsg='';
+  const timer=setInterval(()=>{m.sec++; if(S.tab==='make') drawMakeProgress()},1000);
+  const done=s=>{m.doneSteps.push(s)};
+  try{
+    let source='';
+    if(m.useText){ source=m.text; done('prep'); done('read') }
+    else{
+      // 1) 画像をそろえる (PDF は1ページずつ画像にする)
+      const pages=[];
+      for(const f of m.files){
+        if(f.kind==='pdf'){ m.msg=`${f.label} を画像にしています…`; pages.push(...await pdfToJpegs(f.file,(p,n)=>{m.msg=`${f.label}: ${p}/${n}ページ`})) }
+        else pages.push(await fileToJpeg(f.file));
+      }
+      done('prep'); m.step='read';
+      // 2) まとまりごとに読み取り (1回に送る量を小さく保つ)
+      const batches=[]; let cur=[], size=0;
+      for(const p of pages){ if(cur.length&&(cur.length>=5||size+p.length>3.2e6)){batches.push(cur);cur=[];size=0} cur.push(p); size+=p.length }
+      if(cur.length) batches.push(cur);
+      const texts=[]; let off=0;
+      for(let i=0;i<batches.length;i++){
+        m.readMsg=`(${i+1}/${batches.length})`; m.msg=`${pages.length}ページを読み取っています`;
+        const r=await api('transcribe',{images:batches[i],page_offset:off}); texts.push(r.text); off+=batches[i].length;
+      }
+      source=texts.join('\n\n'); done('read');
+    }
+    // 3) 問題づくり
+    m.step='gen'; m.msg='問題を考えています…';
+    const g=await api('generate',{source_text:source,style:m.style,grade:m.grade,term:m.term,subject:m.subject,count:m.count||'auto',
+      include_written:!!m.written,include_related:!!m.related,instructions:m.order||''});
+    done('gen');
+    // 4) 保存
+    m.step='save'; m.msg=`${g.cards.length}枚できました。保存しています…`;
+    const sv=await api('create_deck',{profile_id:S.profile.id,title:(m.title||'').trim()||g.title,grade:m.grade,term:m.term,subject:m.subject,card_kind:g.card_kind,source_text:source,cards:g.cards});
+    done('save'); clearInterval(timer);
+    S.make=null;
+    setView(`<div class="card result"><div style="font-size:48px">🎉</div>
+      <div class="big">${g.cards.length}枚</div><p>フラッシュカードができました！</p>
+      <p class="muted small">「${esc((m.title||'').trim()||g.title)}」</p>
+      <div style="display:grid;gap:10px;margin-top:14px"><button class="btn primary block" onclick="openDeck(${sv.deck_id})">問題の一覧を見る</button>
+      <button class="btn block" onclick="showTab('make')">続けて別の教材を作る</button></div></div>`);
+  }catch(e){
+    clearInterval(timer); m.running=false;
+    setView(`<div class="card"><h3>うまく作れませんでした</h3><p>${esc(e.message)}</p>
+      <button class="btn primary block" onclick="renderMake()">もどる（入力はそのままです）</button></div>`);
+  }
+}
+
+// ------------------------------------------------------------ 設定
+async function renderSettings(){
+  setView(`<h2>⚙️ 設定</h2>
+    <div class="card"><h3>使う人</h3>
+      ${S.profiles.map(p=>`<div class="row" style="margin-bottom:8px">
+        <input class="t" style="width:64px;text-align:center" id="pe${p.id}" value="${esc(p.emoji)}">
+        <input class="t grow" id="pn${p.id}" value="${esc(p.name)}">
+        <button class="btn sm" onclick="saveProfile(${p.id})">保存</button></div>`).join('')}
+      <div class="row" style="margin-top:12px"><input class="t" style="width:64px;text-align:center" id="newE" value="🙂"><input class="t grow" id="newN" placeholder="追加する人の名前"><button class="btn sm" onclick="addProfile()">追加</button></div>
+    </div>
+    <div class="card"><h3>家族の合言葉を変える</h3>
+      <input class="t" id="np" type="password" placeholder="新しい合言葉（6文字以上）" autocomplete="new-password">
+      <button class="btn block" style="margin-top:8px" onclick="changePass()">変更する</button>
+      <p class="muted small">変えたら、家族のほかのスマホでも新しい合言葉で入り直してください。</p></div>
+    <div class="card"><button class="btn block" onclick="goTop()">👥 使う人を切り替える</button>
+      <button class="btn ghost block" style="margin-top:8px" onclick="logout()">ログアウト</button></div>`);
+}
+async function saveProfile(id){
+  try{ await api('update_profile',{profile_id:id,name:$('#pn'+id).value,emoji:$('#pe'+id).value});
+    const r=await api('overview'); S.profiles=r.profiles; const me=S.profiles.find(p=>p.id===S.profile.id); if(me){S.profile=me;$('#hWho').textContent=`${me.emoji||'🙂'} ${me.name} ▾`}
+    toast('保存しました') }catch(e){toast(e.message)}
+}
+async function addProfile(){
+  try{ await api('add_profile',{name:$('#newN').value,emoji:$('#newE').value,sort:S.profiles.length+1}); const r=await api('overview'); S.profiles=r.profiles; renderSettings(); toast('追加しました') }catch(e){toast(e.message)}
+}
+async function changePass(){
+  const v=$('#np').value; if(v.length<6) return toast('6文字以上にしてください');
+  try{ await api('change_pass',{new_pass:v}); S.pass=v; lsSet('flash_pass',v); $('#np').value=''; toast('変更しました') }catch(e){toast(e.message)}
+}
+
+// 前回の人で開き直す
+(async()=>{
+  const pid=+lsGet('flash_profile');
+  await boot();
+  if(pid&&S.profiles.length&&S.profiles.find(p=>p.id===pid)) enterProfile(pid);
+})();
+</script>
+</body>
+</html>

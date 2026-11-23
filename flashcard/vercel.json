@@ -1,0 +1,5 @@
+{
+  "functions": {
+    "api/flash.py": { "maxDuration": 300 }
+  }
+}
