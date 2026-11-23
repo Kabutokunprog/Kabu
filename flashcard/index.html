@@ -204,7 +204,7 @@ function lsSet(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(
 // ------------------------------------------------------------ 共通
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function toast(msg, ms=2600){const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),ms)}
+function toast(msg, ms=2600){document.querySelectorAll('.toast').forEach(x=>x.remove());const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),ms)}
 async function api(action, data={}){
   const r = await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','X-Flash-Pass':S.pass},body:JSON.stringify({action,...data})});
   let j={}; try{j=await r.json()}catch(e){}
@@ -412,9 +412,9 @@ function drawDeck(){
         <button class="${so.range==='notyet'?'on':''}" onclick="setSO('range','notyet')">まだ覚えてない (${C.length-mastered})</button>
         <button class="${so.range==='wrong'?'on':''}" onclick="setSO('range','wrong')">間違えた (${wrongEver})</button>
       </div>
-      ${word?`<label class="f">向き</label><div class="seg">
-        <button class="${!so.reverse?'on':''}" onclick="setSO('reverse',false)">単語 → 意味</button>
-        <button class="${so.reverse?'on':''}" onclick="setSO('reverse',true)">意味 → 単語</button></div>`:''}
+      <label class="f">向き（表と裏）</label><div class="seg">
+        <button class="${!so.reverse?'on':''}" onclick="setSO('reverse',false)">${word?'単語 → 意味':'問題 → 答え（ふつう）'}</button>
+        <button class="${so.reverse?'on':''}" onclick="setSO('reverse',true)">${word?'意味 → 単語':'答え → 問題（逆）'}</button></div>
       <button class="btn primary block" style="margin-top:14px;font-size:18px" onclick="startDeckStudy()">はじめる</button>
     </div>
 
@@ -475,17 +475,24 @@ function modal(html){$('#modalRoot').innerHTML=`<div class="modal" onclick="if(e
 function closeModal(){$('#modalRoot').innerHTML=''}
 function editCard(id){
   const c=S.cards.find(x=>x.id===id);
-  modal(`<h3>カードを手直し</h3>
+  openCardEditor(c,()=>openDeck(S.deck.id));
+}
+let cardEditDone=null;
+function openCardEditor(c,onSaved){
+  cardEditDone={id:c.id,onSaved};
+  modal(`<h3>カードを編集</h3>
     <label class="f">問題（表）</label><textarea class="t" id="ecQ">${esc(c.question)}</textarea>
     <label class="f">答え（裏）</label><textarea class="t" id="ecA" style="min-height:60px">${esc(c.answer)}</textarea>
     <label class="f">ひとこと解説・読みがな</label><textarea class="t" id="ecN" style="min-height:60px">${esc(c.note)}</textarea>
     <label class="f">例文</label><textarea class="t" id="ecE" style="min-height:60px">${esc(c.example)}</textarea>
     <label class="f">ラベル（時代・品詞など）</label><input class="t" id="ecT" value="${esc(c.tag)}">
-    <div class="row" style="margin-top:14px"><button class="btn ghost grow" onclick="closeModal()">やめる</button><button class="btn primary grow" onclick="saveCard(${id})">保存</button></div>`);
+    <div class="row" style="margin-top:14px"><button class="btn ghost grow" onclick="closeModal()">やめる</button><button class="btn primary grow" onclick="saveCard()">保存</button></div>`);
 }
-async function saveCard(id){
-  try{ await api('update_card',{card_id:id,question:$('#ecQ').value,answer:$('#ecA').value,note:$('#ecN').value,example:$('#ecE').value,tag:$('#ecT').value,needs_regen:false});
-    closeModal(); toast('保存しました'); openDeck(S.deck.id) }catch(e){toast(e.message)}
+async function saveCard(){
+  const data={question:$('#ecQ').value.trim(),answer:$('#ecA').value.trim(),note:$('#ecN').value,example:$('#ecE').value,tag:$('#ecT').value};
+  if(!data.question||!data.answer) return toast('表と裏は空にできません');
+  try{ await api('update_card',{card_id:cardEditDone.id,...data,needs_regen:false});
+    closeModal(); toast('保存しました'); cardEditDone.onSaved(data) }catch(e){toast(e.message)}
 }
 function addCard(){
   modal(`<h3>カードを1枚追加</h3>
@@ -525,7 +532,7 @@ function startDeckStudy(){
   if(!list.length) return toast('出せる問題がありません');
   if(so.order==='rand') list=shuffle(list);
   const d=S.deck;
-  startStudy(list,{mode:'normal',reverse:d.card_kind==='word'&&so.reverse,title:d.title,word:d.card_kind==='word',
+  startStudy(list,{mode:'normal',reverse:!!so.reverse,title:d.title,word:d.card_kind==='word',
     rec:{profile_id:S.profile.id,deck_id:d.id,deck_title:d.title,subject:d.subject},back:()=>openDeck(d.id)});
 }
 let ST=null;
@@ -563,6 +570,10 @@ function drawStudy(){
   root.innerHTML=`<div class="study">
     <div class="head"><button class="btn sm ghost" onclick="quitStudy()">✕</button>
       <div class="prog"><i style="width:${ST.i/n*100}%"></i></div><b>${ST.i+1}/${n}</b></div>
+    <div class="row" style="padding:0 16px 6px;max-width:760px;margin:0 auto;width:100%">
+      <button class="btn sm ${ST.reverse?'navy':'ghost'}" onclick="swapSides()">⇄ 表と裏を入れ替え${ST.reverse?'中':''}</button>
+      <span class="grow"></span>
+      <button class="btn sm ghost" onclick="editStudyCard()">✏️ このカードを編集</button></div>
     <div class="flash">
       <div class="muted small" style="margin-bottom:6px">${esc(ST.mode==='review'?'🔁 復習フラッシュ':ST.title)}${c.deck?` ・ ${esc(c.deck.title)}`:''}
         ${r!==undefined?`<span class="chip ${r?'ok':'rev'}" style="margin-left:6px">${r?'○ 正解にした':'✕ まちがいにした'}</span>`:''}</div>
@@ -583,6 +594,11 @@ function drawStudy(){
     </div></div>`;
 }
 function flip(){ST.shown=true;drawStudy()}
+function swapSides(){ST.reverse=!ST.reverse;ST.shown=false;drawStudy();toast(ST.reverse?'裏→表の向きで出します':'ふつうの向きに戻しました',1800)}
+function editStudyCard(){
+  const c=ST.cards[ST.i];
+  openCardEditor(c,(data)=>{Object.assign(c,data);drawStudy()});
+}
 function unflip(){ST.shown=false;drawStudy()}
 function judge(ok){ST.res[ST.i]=ok;keepPending();ST.i++;ST.shown=ST.res[ST.i]!==undefined;drawStudy()}
 function prevCard(){if(ST.i>0){ST.i--;ST.shown=true;drawStudy()}}
