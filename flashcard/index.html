@@ -410,7 +410,7 @@ function drawDeck(){
         ${hasYear?`<button class="${so.order==='chrono'?'on':''}" onclick="setSO('order','chrono')">時系列（年代順）</button>`:''}
         <button class="${so.order==='rand'?'on':''}" onclick="setSO('order','rand')">ランダム</button>
       </div>
-      ${(d.subject==='歴史'||hasYear)?`<p class="muted small" style="margin:6px 0 0">${hasYear?'「教材の順番」は教科書・プリント通り、「時系列」は西暦の古い順です。':'時系列で出すには、上の「🔢 並び順を直す」を一度押してください。'}</p>`:''}
+      ${((d.subject==='歴史'&&d.source_text)||hasYear)?`<p class="muted small" style="margin:6px 0 0">${hasYear?'「教材の順番」は教科書・プリント通り、「時系列」は西暦の古い順です。':'時系列で出すには、上の「🔢 並び順を直す」を一度押してください。'}</p>`:''}
       <label class="f">出す範囲</label>
       <div class="seg">
         <button class="${so.range==='all'?'on':''}" onclick="setSO('range','all')">全部 (${C.length})</button>
@@ -426,7 +426,7 @@ function drawDeck(){
     <div class="card">
       <div class="row"><h3 class="grow" style="margin:0">問題の一覧 (${C.length})</h3>
         <button class="btn sm" onclick="S.hideAns=!S.hideAns;drawDeck()">${S.hideAns?'答えを見せる':'答えを隠す'}</button></div>
-      <p class="muted small" style="margin:6px 0 0">作り直してほしい問題にチェック → 下のボタンで作り直せます。✏️で手直しもできます。${fixCnt?`（作り直し待ち ${fixCnt}）`:''}</p>
+      <p class="muted small" style="margin:6px 0 0">✏️で手直し、🗑で削除（範囲外の問題など）。チェックを入れると、まとめて作り直し・削除もできます。${fixCnt?`（作り直し待ち ${fixCnt}）`:''}</p>
       <div class="row small" style="margin:6px 0"><button class="btn sm ghost" onclick="checkAll(true)">全部チェック</button><button class="btn sm ghost" onclick="checkAll(false)">チェックを外す</button></div>
       <ul class="qlist">${C.map((c,i)=>{
         const p=c.progress||{};
@@ -440,7 +440,8 @@ function drawDeck(){
               ${p.correct_count?`<span class="chip ok">○${p.correct_count}</span>`:''}${p.wrong_count?`<span class="chip rev">×${p.wrong_count}</span>`:''}
               ${p.in_review?'<span class="chip rev">復習中</span>':''}${c.needs_regen?'<span class="chip fix">作り直し待ち</span>':''}</div>
           </div>
-          <button class="ed" title="手直し" onclick="editCard(${c.id})">✏️</button>
+          <div style="display:flex;flex-direction:column;gap:6px"><button class="ed" title="手直し" onclick="editCard(${c.id})">✏️</button>
+          <button class="ed" title="この問題を削除" onclick="deleteOne(${c.id})">🗑</button></div>
         </li>`}).join('')}</ul>
     </div>
     <div id="actBar"></div>
@@ -455,7 +456,7 @@ function drawActBar(){
   const n=S.checked.size, el=$('#actBar'); if(!el) return;
   if(!n){el.innerHTML='';return}
   el.innerHTML=`<div class="sticky-act">
-    <div class="row" style="margin-bottom:8px"><b class="grow">${n}問を選択中</b><button class="btn sm danger" onclick="deleteChecked()">削除</button></div>
+    <div class="row" style="margin-bottom:8px"><b class="grow">${n}問を選択中</b><button class="btn sm danger" onclick="deleteChecked()">🗑 選んだ${n}問を削除</button></div>
     <textarea class="t" id="regenOrder" placeholder="作り直しの注文（例：答えが人物名になるように／もっと易しく／読みがなも付けて）"></textarea>
     <button class="btn primary block" style="margin-top:8px" onclick="regenerate()">🔄 チェックした${n}問をAIで作り直す</button></div>`;
 }
@@ -468,9 +469,20 @@ async function regenerate(){
     toast(`${r.updated}問を作り直しました`); openDeck(S.deck.id);
   }catch(e){toast(e.message,5000);drawActBar()}
 }
+async function removeCards(ids){
+  const y=window.scrollY;
+  await api('delete_cards',{card_ids:ids});
+  const del=new Set(ids); S.cards=S.cards.filter(c=>!del.has(c.id)); ids.forEach(i=>S.checked.delete(i));
+  drawDeck(); window.scrollTo(0,y); toast(`${ids.length}問を削除しました`);
+}
 async function deleteChecked(){
-  if(!confirm(`${S.checked.size}問を削除します。よろしいですか？`)) return;
-  try{ await api('delete_cards',{card_ids:[...S.checked]}); toast('削除しました'); openDeck(S.deck.id) }catch(e){toast(e.message)}
+  if(!confirm(`チェックした${S.checked.size}問を削除します。成績も消えます。よろしいですか？`)) return;
+  try{ await removeCards([...S.checked]) }catch(e){toast(e.message)}
+}
+async function deleteOne(id){
+  const c=S.cards.find(x=>x.id===id); if(!c) return;
+  if(!confirm(`この問題を削除しますか？\n\n「${c.question}」\n→ ${c.answer}`)) return;
+  try{ await removeCards([id]) }catch(e){toast(e.message)}
 }
 async function deleteDeck(){
   if(!confirm(`「${S.deck.title}」を削除します。成績も消えます。よろしいですか？`)) return;
