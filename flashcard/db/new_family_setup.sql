@@ -47,6 +47,7 @@ create table if not exists public.flash_cards (
   example text not null default '',
   tag text not null default '',
   year int,
+  importance int,
   needs_regen boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

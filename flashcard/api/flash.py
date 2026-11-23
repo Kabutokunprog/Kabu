@@ -70,7 +70,17 @@ def clean_card(c):
         v = c.get(k)
         out[k] = str(v).strip() if v is not None else ""
     out["year"] = clean_year(c.get("year"))
+    out["importance"] = clean_importance(c.get("importance"))
     return out
+
+
+def clean_importance(v):
+    """テストに出やすさ 1〜5 (なし/範囲外は None)。"""
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return None
+    return n if 1 <= n <= 5 else None
 
 
 def apply_answer(prog, correct, mode):
@@ -591,6 +601,7 @@ def build_generate_prompt(o):
         "- example: 単語型なら教材の例文と訳(「例文（出典）→訳：…」の形)。それ以外は空でよい。",
         "- tag: 小さなラベル。歴史なら時代や年(例:「1716年 享保」)、単語型なら品詞(例:「形・ク」)、それ以外は単元名など短く。",
         "- year: 歴史のカードは、その出来事・人物が活躍した西暦の目安を整数で(例: 1603。文化や時代全体なら中ごろの年。紀元前はマイナス)。後で時系列に並べ替えるのに使う。歴史以外は 0。",
+        "- importance: その学年・科目の一般的な中間・期末テストでよく出題されるか(頻出度)を1〜5で。教材の中で目立つかではなく、全国の学校の定期テストや対策問題集で実際によく問われるかで判断する(5=定番中の定番 / 3=ふつう / 1=めったに出ない細かい知識)。全部を高くしない。",
         "- 内容は教材にあることを中心に。教材の誤字や手書きの書き込みは正しい内容に直してよい。",
         "- 同じ問いを重複させない。",
         "",
@@ -625,8 +636,8 @@ def build_generate_prompt(o):
 
 CARD_SCHEMA = {
     "type": "object",
-    "properties": {**{k: {"type": "string"} for k in CARD_FIELDS}, "year": {"type": "integer"}},
-    "required": [*CARD_FIELDS, "year"],
+    "properties": {**{k: {"type": "string"} for k in CARD_FIELDS}, "year": {"type": "integer"}, "importance": {"type": "integer"}},
+    "required": [*CARD_FIELDS, "year", "importance"],
     "additionalProperties": False,
 }
 GENERATE_SCHEMA = {
@@ -643,8 +654,8 @@ REGEN_SCHEMA = {
     "type": "object",
     "properties": {"cards": {"type": "array", "items": {
         "type": "object",
-        "properties": {"id": {"type": "integer"}, **{k: {"type": "string"} for k in CARD_FIELDS}, "year": {"type": "integer"}},
-        "required": ["id", *CARD_FIELDS, "year"],
+        "properties": {"id": {"type": "integer"}, **{k: {"type": "string"} for k in CARD_FIELDS}, "year": {"type": "integer"}, "importance": {"type": "integer"}},
+        "required": ["id", *CARD_FIELDS, "year", "importance"],
         "additionalProperties": False}}},
     "required": ["cards"],
     "additionalProperties": False,
@@ -729,7 +740,7 @@ def ai_generate(opts):
     mock_wait()
     if MOCK:
         cards = [
-            {"question": "江戸幕府を開いた人物は誰か。", "answer": "徳川家康", "note": "とくがわいえやす", "example": "", "tag": "1603年", "year": 1603},
+            {"question": "江戸幕府を開いた人物は誰か。", "answer": "徳川家康", "note": "とくがわいえやす", "example": "", "tag": "1603年", "year": 1603, "importance": 5},
             {"question": "8代将軍徳川吉宗が行った改革を何というか。", "answer": "享保の改革", "note": "きょうほう", "example": "", "tag": "1716年", "year": 1716},
             {"question": "老中松平定信による改革を何というか。", "answer": "寛政の改革", "note": "かんせい", "example": "", "tag": "1787年", "year": 1787},
         ]
@@ -768,6 +779,34 @@ def ai_reorder(deck, cards, model=None):
         "", "## 教材の内容", "<material>", deck.get("source_text") or "(記録なし)", "</material>",
     ])
     data = json.loads(claude_call(prompt, "low", schema=REORDER_SCHEMA, max_tokens=16000, model=model))
+    return data.get("cards", [])
+
+
+IMPORTANCE_SCHEMA = {
+    "type": "object",
+    "properties": {"cards": {"type": "array", "items": {
+        "type": "object", "properties": {"id": {"type": "integer"}, "importance": {"type": "integer"}},
+        "required": ["id", "importance"], "additionalProperties": False}}},
+    "required": ["cards"], "additionalProperties": False,
+}
+
+
+def ai_importance(deck, cards, model=None):
+    """各カードに「定期テストに出やすさ」1〜5を付ける。"""
+    if MOCK:
+        return [{"id": c["id"], "importance": 5 - (i % 5)} for i, c in enumerate(cards)]
+    prompt = "\n".join([
+        "あなたは日本の中学・高校で定期テスト(中間・期末)を長年作ってきたベテラン教師です。",
+        "下のフラッシュカードそれぞれについて、「この学年・科目の一般的な中間・期末テストで、どれくらいよく出題されるか(頻出度)」を1〜5で付けてください。",
+        "- 教材(プリント)の中で目立つかどうかではなく、全国の学校の一般的な中間・期末テストや定期テスト対策の問題集で、実際によく問われるかどうかで判断する(入試での頻出は参考程度)。",
+        "- 5: 定番中の定番(ほぼどのテストにも出る) / 4: よく出る / 3: ふつう / 2: たまに出る / 1: めったに出ない細かい知識",
+        "- 例: 歴史なら教科書の太字レベルの人物・改革・条約は高め、細かい作品名や人物の別名は低め。古文単語なら入試頻出の古今異義語や重要多義語は高め。",
+        "- 全部を5にしない。メリハリをつける。すべてのカードの id を1回ずつ返す。",
+        f"教材: {deck.get('title')} / 科目: {deck.get('subject') or '不明'} / 学年: {deck.get('grade') or '不明'} / テスト: {deck.get('term') or '中間・期末'}",
+        "", "## カード", json.dumps([{"id": c["id"], "question": c["question"], "answer": c["answer"]} for c in cards], ensure_ascii=False),
+        "", "## 教材の内容", "<material>", (deck.get("source_text") or "(記録なし)")[:30000], "</material>",
+    ])
+    data = json.loads(claude_call(prompt, "low", schema=IMPORTANCE_SCHEMA, max_tokens=16000, model=model))
     return data.get("cards", [])
 
 
@@ -913,7 +952,7 @@ def ai_regenerate(deck, targets, others, instructions):
         f"教材「{deck.get('title')}」(学年: {deck.get('grade') or '不明'} / 科目: {deck.get('subject') or '不明'}) のフラッシュカードのうち、",
         "「作り直してほしい」と印がついたカードを、より良い問題に作り直してください。",
         "",
-        "- 同じ id のまま、question / answer / note / example / tag / year をすべて書き直して返す(year は歴史なら西暦の目安、それ以外は 0)。",
+        "- 同じ id のまま、question / answer / note / example / tag / year / importance をすべて書き直して返す(year は歴史なら西暦の目安、それ以外は 0。importance はテストに出る可能性1〜5)。",
         "- 答えが1つに決まり、問題文だけで何を聞かれているか分かるようにする。問題文に答えを書かない。",
         "- 教材の内容の範囲で作る。ほかのカードと同じ問いにならないようにする。",
         "- 単語型(card_kind=word)なら question=見出し語、answer=意味 の形を守る。",
@@ -1198,6 +1237,8 @@ def handle(action, body, passcode):
         data = {k: str(body[k]).strip() for k in CARD_FIELDS if k in body}
         if "year" in body:
             data["year"] = clean_year(body["year"])
+        if "importance" in body:
+            data["importance"] = clean_importance(body["importance"])
         if "needs_regen" in body:
             data["needs_regen"] = bool(body["needs_regen"])
         s.update_card(body["card_id"], data)
@@ -1318,6 +1359,19 @@ def handle(action, body, passcode):
             "started_at": body.get("started_at"), "finished_at": iso(now_utc()),
         })
         return {"attempt": att}
+
+    if action == "rate_importance":
+        deck, cards = s.get_deck(body["deck_id"])
+        if not cards:
+            return {"updated": 0}
+        ids = {c["id"] for c in cards}
+        done = 0
+        for r in ai_importance(deck, cards, pick_model(body.get("model") or "sonnet")):
+            cid, imp = int(r.get("id", -1)), clean_importance(r.get("importance"))
+            if cid in ids and imp:
+                s.update_card(cid, {"importance": imp})
+                done += 1
+        return {"updated": done}
 
     if action == "reorder":
         deck, cards = s.get_deck(body["deck_id"])

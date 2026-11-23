@@ -423,7 +423,9 @@ function drawDeck(){
         <button class="${so.order==='seq'?'on':''}" onclick="setSO('order','seq')">教材の順番</button>
         ${hasYear?`<button class="${so.order==='chrono'?'on':''}" onclick="setSO('order','chrono')">時系列（年代順）</button>`:''}
         <button class="${so.order==='rand'?'on':''}" onclick="setSO('order','rand')">ランダム</button>
+        <button class="${so.order==='freq'?'on':''}" onclick="setSO('order','freq')">頻出順</button>
       </div>
+      ${so.order==='freq'?`<p class="muted small" style="margin:6px 0 0">テスト直前向け：AIが付けた「頻出度★」（一般的な中間・期末テストでよく出るか）の高い順。同じ★の中では、よくまちがえるカードが先です。${C.some(c=>c.importance!=null)?'':'<br>この教材にはまだ★がないので、はじめるときにAIが付けます（30秒ほど）。'}</p>`:''}
       ${((d.subject==='歴史'&&d.source_text)||hasYear)?`<p class="muted small" style="margin:6px 0 0">${hasYear?'「教材の順番」は教科書・プリント通り、「時系列」は西暦の古い順です。':'時系列で出すには、上の「🔢 並び順を直す」を一度押してください。'}</p>`:''}
       <label class="f">出す範囲</label>
       <div class="seg">
@@ -453,7 +455,7 @@ function drawDeck(){
           <div class="grow">
             <div class="q">${esc(c.question)}</div>
             <div class="a ${S.hideAns?'hide':''}">${esc(c.answer)}</div>
-            <div class="chips" style="margin-top:3px">${c.tag?`<span class="chip">${esc(c.tag)}</span>`:''}${c.year!=null&&!(c.tag||'').includes(String(Math.abs(c.year)))?`<span class="chip">${c.year<0?'紀元前'+(-c.year):c.year}年</span>`:''}
+            <div class="chips" style="margin-top:3px">${c.importance?`<span class="chip" style="background:#fff6d6;color:#8a6500" title="頻出度（テストでよく出るか）">${'★'.repeat(c.importance)}</span>`:''}${c.tag?`<span class="chip">${esc(c.tag)}</span>`:''}${c.year!=null&&!(c.tag||'').includes(String(Math.abs(c.year)))?`<span class="chip">${c.year<0?'紀元前'+(-c.year):c.year}年</span>`:''}
               ${p.correct_count?`<span class="chip ok">○${p.correct_count}</span>`:''}${p.wrong_count?`<span class="chip rev">×${p.wrong_count}</span>`:''}
               ${p.in_review?'<span class="chip rev">復習中</span>':''}${c.needs_regen?'<span class="chip fix">作り直し待ち</span>':''}</div>
           </div>
@@ -521,10 +523,11 @@ function openCardEditor(c,onSaved){
     <label class="f">例文</label><textarea class="t" id="ecE" style="min-height:60px">${esc(c.example)}</textarea>
     <label class="f">ラベル（時代・品詞など）</label><input class="t" id="ecT" value="${esc(c.tag)}">
     <label class="f">西暦（時系列で並べるときに使います。なければ空）</label><input class="t" id="ecY" type="number" inputmode="numeric" value="${c.year!=null?c.year:''}">
+    <label class="f">頻出度（テストでよく出るか。頻出順で使います）</label><select class="t" id="ecI"><option value="">—</option>${[5,4,3,2,1].map(n=>`<option value="${n}" ${c.importance===n?'selected':''}>${'★'.repeat(n)}${n===5?'（定番中の定番）':n===1?'（めったに出ない）':''}</option>`).join('')}</select>
     <div class="row" style="margin-top:14px"><button class="btn ghost grow" onclick="closeModal()">やめる</button><button class="btn primary grow" onclick="saveCard()">保存</button></div>`);
 }
 async function saveCard(){
-  const data={question:$('#ecQ').value.trim(),answer:$('#ecA').value.trim(),note:$('#ecN').value,example:$('#ecE').value,tag:$('#ecT').value,year:$('#ecY').value===''?null:parseInt($('#ecY').value,10)};
+  const data={question:$('#ecQ').value.trim(),answer:$('#ecA').value.trim(),note:$('#ecN').value,example:$('#ecE').value,tag:$('#ecT').value,year:$('#ecY').value===''?null:parseInt($('#ecY').value,10),importance:$('#ecI').value===''?null:parseInt($('#ecI').value,10)};
   if(!data.question||!data.answer) return toast('表と裏は空にできません');
   try{ await api('update_card',{card_id:cardEditDone.id,...data,needs_regen:false});
     closeModal(); toast('保存しました'); cardEditDone.onSaved(data) }catch(e){toast(e.message)}
@@ -576,9 +579,24 @@ function startDeckStudy(){
   if(!list.length) return toast('出せる問題がありません');
   if(so.order==='rand') list=shuffle(list);
   if(so.order==='chrono') list=chronoSort(list);
+  if(so.order==='freq'){
+    if(!S.cards.some(c=>c.importance!=null)) return rateAndStart();
+    list=freqSort(list);
+  }
   const d=S.deck;
   startStudy(list,{mode:'normal',reverse:!!so.reverse,title:d.title,word:d.card_kind==='word',choice:so.answer==='choice',pool:S.cards,
     rec:{profile_id:S.profile.id,deck_id:d.id,deck_title:d.title,subject:d.subject},back:()=>openDeck(d.id)});
+}
+// 頻出順: ★(テストに出やすさ)の高い順 → まちがえた回数が多い順 → 教材の順
+function freqSort(list){
+  return list.map((c,k)=>({c,k,i:c.importance!=null?c.importance:3,w:(c.progress&&c.progress.wrong_count)||0,
+    r:c.progress&&c.progress.in_review?1:0})).sort((a,b)=>b.i-a.i||b.r-a.r||b.w-a.w||a.k-b.k).map(x=>x.c);
+}
+async function rateAndStart(){
+  toast('AIが「頻出度★」を付けています…（30秒ほど）',40000);
+  try{ const r=await api('rate_importance',{deck_id:S.deck.id}); toast(`${r.updated}枚に★を付けました`);
+    const d=await api('get_deck',{deck_id:S.deck.id}); S.deck=d.deck; S.cards=d.cards; drawDeck(); startDeckStudy();
+  }catch(e){toast(e.message,5000)}
 }
 // 西暦で古い順に並べる。西暦のないカードは、プリントで直前にあるカードの年に続ける
 function chronoSort(list){
