@@ -585,7 +585,7 @@ function startDeckStudy(){
     list=freqSort(list);
   }
   const d=S.deck;
-  lsSet(resumeKeyOf('deck:'+d.id),null);
+  dropResume('deck:'+d.id);
   startStudy(list,{mode:'normal',reverse:!!so.reverse,title:d.title,word:d.card_kind==='word',choice:so.answer==='choice',pool:S.cards,resumeKey:'deck:'+d.id,
     rec:{profile_id:S.profile.id,deck_id:d.id,deck_title:d.title,subject:d.subject},back:()=>openDeck(d.id)});
 }
@@ -621,28 +621,40 @@ function studyPayload(){
 }
 function keepPending(){const p=studyPayload(); lsSet('flash_pending_session',p?JSON.stringify(p):null); saveResume()}
 // ---- 途中から再開: どこまで進んだかを覚えておく (この端末に保存)
+// 容量を取らないよう、保存するのは「カードの番号」と「○×の印」だけ。1人につき最新3つまで。
+const RESUME_MAX=3;
 function resumeKeyOf(k){return 'flash_resume_'+(S.profile?S.profile.id:0)+'_'+k}
+function resumeIndexKey(){return 'flash_resume_idx_'+(S.profile?S.profile.id:0)}
+function dropResume(k){lsSet(resumeKeyOf(k),null);let idx=[];try{idx=JSON.parse(lsGet(resumeIndexKey())||'[]')}catch(e){}lsSet(resumeIndexKey(),JSON.stringify(idx.filter(x=>x!==k)))}
 function saveResume(){
   if(!ST||!ST.resumeKey) return;
   const n=ST.cards.length, done=ST.res.filter(r=>r!==undefined).length;
-  if(ST.i>=n||done>=n||!done){ if(done>=n) lsSet(resumeKeyOf(ST.resumeKey),null); return }
-  const slim=c=>({id:c.id,question:c.question,answer:c.answer,note:c.note||'',example:c.example||'',tag:c.tag||'',deck_id:c.deck_id,
-    deck:c.deck?{title:c.deck.title,card_kind:c.deck.card_kind}:undefined});
-  lsSet(resumeKeyOf(ST.resumeKey),JSON.stringify({cards:ST.cards.map(slim),res:ST.res,picked:ST.picked,i:ST.i,savedAt:Date.now(),
-    opts:{mode:ST.mode,reverse:ST.reverse,title:ST.title,word:ST.word,choice:ST.choice,rec:ST.rec}}));
+  if(done>=n){ dropResume(ST.resumeKey); return }
+  if(!done) return;
+  const k=ST.resumeKey;
+  lsSet(resumeKeyOf(k),JSON.stringify({ids:ST.cards.map(c=>c.id),r:Array.from({length:n},(_,i)=>ST.res[i]===true?'1':ST.res[i]===false?'0':'-').join(''),
+    d:[...new Set(ST.cards.map(c=>c.deck_id).filter(Boolean))],t:Date.now(),
+    o:{mode:ST.mode,reverse:!!ST.reverse,title:ST.title,word:!!ST.word,choice:!!ST.choice,rec:ST.rec}}));
+  let idx=[];try{idx=JSON.parse(lsGet(resumeIndexKey())||'[]')}catch(e){}
+  idx=[k,...idx.filter(x=>x!==k)];
+  idx.slice(RESUME_MAX).forEach(old=>lsSet(resumeKeyOf(old),null));
+  lsSet(resumeIndexKey(),JSON.stringify(idx.slice(0,RESUME_MAX)));
 }
-function loadResume(k){try{const r=JSON.parse(lsGet(resumeKeyOf(k))||'null');if(r&&Date.now()-r.savedAt<30*864e5)return r}catch(e){}return null}
-function resumeInfo(k){const r=loadResume(k);if(!r)return null;const n=r.cards.length, at=r.res.findIndex(x=>x===null||x===undefined);return {n,at:at<0?n:at,savedAt:r.savedAt}}
-function resumeStudy(k,back,fresh){
+function loadResume(k){try{const r=JSON.parse(lsGet(resumeKeyOf(k))||'null');if(r&&r.ids&&Date.now()-r.t<30*864e5)return r;if(r)dropResume(k)}catch(e){}return null}
+function resumeInfo(k){const r=loadResume(k);if(!r)return null;const n=r.ids.length;let at=0;while(at<n&&(r.r[at]==='1'||r.r[at]==='0'))at++;return {n,at}}
+async function resumeStudy(k,back,fresh){
   const r=loadResume(k); if(!r) return toast('続きが見つかりませんでした');
-  // 教材の場合は、最新のカードの中身を使う(消したカードは飛ばす)
-  let cards=r.cards, res=r.res, picked=r.picked||[];
-  if(fresh){ const byId=new Map(fresh.map(c=>[c.id,c])); const keep=cards.map((c,k)=>[byId.get(c.id),k]).filter(x=>x[0]);
-    cards=keep.map(x=>x[0]); res=keep.map(x=>r.res[x[1]]); picked=keep.map(x=>picked[x[1]]) }
-  if(!cards.length){ lsSet(resumeKeyOf(k),null); return toast('続きのカードがもうありません') }
-  startStudy(cards,{...r.opts,pool:fresh||cards,resumeKey:k,back});
-  ST.res=res.map(x=>x===null?undefined:x); ST.picked=picked; ST.recorded=new Set(ST.res.map((x,i)=>x===undefined?-1:i).filter(i=>i>=0));
-  const first=ST.res.findIndex(x=>x===undefined); ST.i=first<0?cards.length:first; ST.shown=false;
+  // 問題の中身はサーバーから読み直す(消したカードは飛ばす)
+  let pool=fresh;
+  if(!pool){ pool=[...(S.review||[])];
+    for(const did of r.d||[]){ try{ pool.push(...(await api('get_deck',{deck_id:did})).cards) }catch(e){} } }
+  const byId=new Map(); pool.forEach(c=>{if(!byId.has(c.id))byId.set(c.id,c)});
+  const keep=r.ids.map((id,i)=>[byId.get(id),r.r[i]]).filter(x=>x[0]);
+  if(!keep.length){ dropResume(k); return toast('続きのカードがもうありません') }
+  startStudy(keep.map(x=>x[0]),{...r.o,pool,resumeKey:k,back});
+  ST.res=keep.map(x=>x[1]==='1'?true:x[1]==='0'?false:undefined);
+  ST.recorded=new Set(ST.res.map((x,i)=>x===undefined?-1:i).filter(i=>i>=0));
+  const first=ST.res.findIndex(x=>x===undefined); ST.i=first<0?ST.cards.length:first; ST.shown=false;
   toast(`${ST.i+1}問目から再開します`,2000); drawStudy();
 }
 async function flushStudy(){
@@ -729,7 +741,7 @@ function judge(ok){ST.res[ST.i]=ok;ST.i++;keepPending();ST.shown=ST.res[ST.i]!==
 function prevCard(){if(ST.i>0){ST.i--;ST.shown=true;drawStudy()}}
 function nextCard(){if(ST.res[ST.i]!==undefined){ST.i++;ST.shown=ST.res[ST.i]!==undefined;drawStudy()}}
 function drawResult(){
-  if(ST.resumeKey) lsSet(resumeKeyOf(ST.resumeKey),null);
+  if(ST.resumeKey) dropResume(ST.resumeKey);
   const done=ST.res.filter(r=>r!==undefined), ok=done.filter(r=>r).length, n=done.length;
   const wrong=ST.cards.filter((c,k)=>ST.res[k]===false);
   const pct=n?Math.round(ok/n*100):0;
@@ -803,7 +815,7 @@ async function startReviewStudy(l){
     toast('準備しています…',1500); pool=[...S.review];
     for(const did of [...new Set(l.map(c=>c.deck_id))]){ try{ pool.push(...(await api('get_deck',{deck_id:did})).cards) }catch(e){} }
   }
-  lsSet(resumeKeyOf('review'),null);
+  dropResume('review');
   startStudy(shuffle(l),{mode:'review',title:'復習',choice:S.revAnswer==='choice',pool,resumeKey:'review',rec:{profile_id:S.profile.id,deck_id:null,deck_title:'復習フラッシュ',subject:S.revSub||''},back:renderReview});
 }
 
