@@ -418,7 +418,7 @@ def build_generate_prompt(o):
             lines.append("- 単語型の場合、関連語は別のカードにせず note に一言だけ書く。")
     count = o.get("count") or "auto"
     if count == "auto":
-        lines.append("- 枚数: 教材の重要事項をもれなく。目安は教材の分量しだい(最大150枚)。")
+        lines.append("- 枚数: おまかせ。単語集・用語集なら見出し語の数だけ、問題と答えが載っている教材なら問題の数だけ、ちょうど全部をカードにする(抜かさない・水増ししない)。それ以外は重要事項をもれなく(最大150枚)。")
     else:
         n = max(5, min(150, int(count)))
         lines.append(f"- 枚数: だいたい {n} 枚 (±1割)。教材の内容が少なければ無理に増やさず、多ければ大事なものから選ぶ。")

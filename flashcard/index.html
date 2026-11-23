@@ -657,9 +657,13 @@ function renderMake(){
       <div class="seg"><button class="${(m.model||'opus')==='opus'?'on':''}" onclick="mkSave();S.make.model='opus';renderMake()">Opus（かしこい）</button><button class="${m.model==='sonnet'?'on':''}" onclick="mkSave();S.make.model='sonnet';renderMake()">Sonnet（安い・速い）</button></div>
       <p class="muted small" style="margin:4px 0 0">どちらも「中エフォート」で作ります。Sonnetは料金がOpusの約半分です。</p>
       <label class="f">作るカードの枚数</label>
-      <div class="row"><input class="t" id="mkC" type="number" inputmode="numeric" min="5" max="150" step="5" style="width:120px" placeholder="おまかせ" value="${m.count&&m.count!=='auto'?esc(m.count):''}"><span>枚くらい</span></div>
-      <div class="order-chips">${['おまかせ',10,20,30,50,80,100].map(n=>`<button onclick="$('#mkC').value='${n==='おまかせ'?'':n}'">${n==='おまかせ'?'おまかせ':n+'枚'}</button>`).join('')}</div>
-      <p class="muted small" style="margin:4px 0 0">空欄なら「おまかせ」（大事なところを全部）。だいたいの枚数で作ります（最大150枚）。</p>
+      <div class="seg">
+        <button class="${!m.countOn?'on':''}" onclick="mkSave();S.make.countOn=false;renderMake()">おまかせ（教材にある分を全部）</button>
+        <button class="${m.countOn?'on':''}" onclick="mkSave();S.make.countOn=true;renderMake()">枚数を決める</button></div>
+      ${m.countOn?`<div class="row" style="margin-top:8px"><input class="t" id="mkC" type="number" inputmode="numeric" min="5" max="150" step="5" style="width:120px" value="${esc(m.count&&m.count!=='auto'?m.count:'30')}"><span>枚くらい</span></div>
+      <div class="order-chips">${[10,20,30,50,80,100].map(n=>`<button onclick="$('#mkC').value='${n}'">${n}枚</button>`).join('')}</div>
+      <p class="muted small" style="margin:4px 0 0">だいたいの枚数で作ります（最大150枚）。</p>`
+      :`<p class="muted small" style="margin:6px 0 0">単語集なら単語の数だけ、一問一答なら問題の数だけ、ちょうど全部をカードにします。</p>`}
     </div>
     <div class="card">
       <h3>④ AIへの注文 <span class="muted small">（なくてもOK）</span></h3>
@@ -672,7 +676,7 @@ function renderMake(){
 }
 function mkSave(){
   const m=S.make, v=id=>{const e=$(id);return e?e.value:undefined};
-  if($('#mkG')){m.grade=v('#mkG');m.term=v('#mkM');m.subject=v('#mkS');m.title=v('#mkT');m.count=(v('#mkC')||'').trim()||'auto';m.order=v('#mkO')}
+  if($('#mkG')){m.grade=v('#mkG');m.term=v('#mkM');m.subject=v('#mkS');m.title=v('#mkT');if($('#mkC'))m.count=(v('#mkC')||'').trim()||'auto';m.order=v('#mkO')}
   if($('#mkText')) m.text=v('#mkText');
   if($('#mkW')) m.written=$('#mkW').checked;
   if($('#mkR')) m.related=$('#mkR').checked;
@@ -781,11 +785,11 @@ async function runMake(){
       source=texts.join('\n\n'); done('read');
     }
     // 3) 問題づくり
-    const nReq=(m.count&&m.count!=='auto')?parseInt(m.count,10):0;
+    const nReq=(m.countOn&&m.count&&m.count!=='auto')?parseInt(m.count,10):0;
     m.step='gen'; m.msg=''; m.genStart=m.sec; m.modelLabel=(m.model==='sonnet'?'Sonnet':'Opus');
     m.countLabel=nReq?`約${nReq}枚の`:'';
     m.genExpect=Math.round((m.model==='sonnet'?25:40)+(nReq||Math.min(120,source.length/60))*(m.model==='sonnet'?0.7:1.1));
-    const g=await api('generate',{source_text:source,style:m.style,grade:m.grade,term:m.term,subject:m.subject,count:(m.count&&m.count!=='auto')?Math.max(5,Math.min(150,parseInt(m.count,10)||0))||'auto':'auto',
+    const g=await api('generate',{source_text:source,style:m.style,grade:m.grade,term:m.term,subject:m.subject,count:nReq?Math.max(5,Math.min(150,nReq)):'auto',
       include_written:!!m.written,include_related:!!m.related,instructions:m.order||'',model:m.model||'opus'});
     done('gen');
     // 4) 保存
