@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9ad8ff"/><stop offset="1" stop-color="#4ba6e6"/>
+    </linearGradient>
+    <linearGradient id="milk" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="0.8" stop-color="#f6fbff"/><stop offset="1" stop-color="#dcecf8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- 牛柄の模様 -->
+  <path d="M-10,380 C30,360 70,385 80,420 C92,460 60,480 30,470 C10,500 -20,490 -10,460 Z" fill="#1f2937" opacity="0.9"/>
+  <path d="M430,-10 C470,10 520,0 522,40 C525,85 490,95 465,80 C440,100 410,70 425,45 C400,30 405,0 430,-10 Z" fill="#1f2937" opacity="0.9"/>
+  <path d="M440,430 C460,415 495,425 492,452 C490,478 462,482 450,470 C432,476 424,448 440,430 Z" fill="#1f2937" opacity="0.9"/>
+  <!-- 影 -->
+  <ellipse cx="256" cy="466" rx="120" ry="14" fill="#1e5f91" opacity="0.35"/>
+  <!-- 牛乳びん -->
+  <path d="M196,112 L316,112 L316,150 C316,178 368,192 368,238 L368,428 Q368,458 338,458 L174,458 Q144,458 144,428 L144,238 C144,192 196,178 196,150 Z"
+        fill="url(#milk)" stroke="#2b6cb0" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M166,250 C166,220 190,205 205,196 L205,420 Q166,420 166,400 Z" fill="#ffffff" opacity="0.9"/>
+  <!-- 紙のふた -->
+  <rect x="186" y="76" width="140" height="44" rx="12" fill="#e5484d" stroke="#2b6cb0" stroke-width="8"/>
+  <rect x="200" y="88" width="112" height="10" rx="5" fill="#ffb3b5"/>
+  <!-- 時計（9時〜15時を色付け） -->
+  <circle cx="256" cy="330" r="80" fill="#ffffff" stroke="#2b6cb0" stroke-width="9"/>
+  <path d="M256,330 L188,330 A68,68 0 0 1 324,330 Z" fill="#c4e6fd"/>
+  <g stroke="#2b6cb0" stroke-width="7" stroke-linecap="round">
+    <line x1="256" y1="258" x2="256" y2="270"/>
+    <line x1="328" y1="330" x2="316" y2="330"/>
+    <line x1="256" y1="402" x2="256" y2="390"/>
+    <line x1="184" y1="330" x2="196" y2="330"/>
+  </g>
+  <g stroke="#1f2937" stroke-linecap="round">
+    <line x1="256" y1="330" x2="256" y2="276" stroke-width="8"/>
+    <line x1="256" y1="330" x2="300" y2="330" stroke-width="11"/>
+  </g>
+  <circle cx="256" cy="330" r="9" fill="#e5484d"/>
+</svg>
