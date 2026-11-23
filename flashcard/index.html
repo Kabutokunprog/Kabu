@@ -621,8 +621,8 @@ function studyPayload(){
 }
 function keepPending(){const p=studyPayload(); lsSet('flash_pending_session',p?JSON.stringify(p):null); saveResume()}
 // ---- 途中から再開: どこまで進んだかを覚えておく (この端末に保存)
-// 容量を取らないよう、保存するのは「カードの番号」と「○×の印」だけ。1人につき最新3つまで。
-const RESUME_MAX=3;
+// 容量を取らないよう、保存するのは「カードの番号」と「○×の印」だけ。1人につき最新10個まで(1個約0.25KB)。
+const RESUME_MAX=10;
 function resumeKeyOf(k){return 'flash_resume_'+(S.profile?S.profile.id:0)+'_'+k}
 function resumeIndexKey(){return 'flash_resume_idx_'+(S.profile?S.profile.id:0)}
 function dropResume(k){lsSet(resumeKeyOf(k),null);let idx=[];try{idx=JSON.parse(lsGet(resumeIndexKey())||'[]')}catch(e){}lsSet(resumeIndexKey(),JSON.stringify(idx.filter(x=>x!==k)))}
