@@ -1,5 +1,5 @@
 /**
- * 勤怠記録 Webアプリ（改良版）
+ * 勤怠記録 Webアプリ  v1.1（2026/11/23）
  *
  * ・今までの月別シート（例: 2026-11）をそのまま読み書きします
  * ・時給は「時給履歴」シートで管理し、途中で変わっても日付ごとに正しく計算します
@@ -7,6 +7,9 @@
  *
  * 設定方法は README.md を見てください。
  */
+
+// プログラムの版（Index と同じ版になっているか画面で確認できます）
+var APP_VERSION = 'v1.1';
 
 // 時給履歴がまだ1件もないときに使う時給（最初の1回だけ使われます）
 var YOUR_HOURLY_WAGE = 1230;
@@ -150,7 +153,8 @@ function getDashboard() {
     projection: projection,
     wage: wageFor_(today, getWageHistory_()),
     walls: buildWalls_(Number(y), year.salary, projection, s),
-    settings: s
+    settings: s,
+    version: APP_VERSION
   };
 }
 

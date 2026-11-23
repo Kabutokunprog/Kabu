@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- 勤怠記録 Index v1.1（2026/11/23） -->
 <html>
 <head>
 <base target="_top">
@@ -110,6 +111,7 @@
     <!-- 進捗の見える化 -->
     <div class="card" id="week-card"><div class="loading">…</div></div>
     <div class="card" id="mini-card"><div class="loading">…</div></div>
+    <div id="ver" class="center sub" style="font-size:12px;">&nbsp;</div>
   </section>
 
   <!-- ===================== 勤怠表 ===================== -->
@@ -231,6 +233,7 @@
 </div>
 
 <script>
+  var INDEX_VERSION = 'v1.1';  // この画面（Index）の版
   var D = null;            // ホームのデータ
   var curMonth = null;     // 勤怠表で表示中の月
   var monthList = [];
@@ -280,6 +283,9 @@
 
   function renderHome(d) {
     D = d;
+    var same = d.version === INDEX_VERSION;
+    $('ver').innerHTML = same ? '勤怠記録 ' + INDEX_VERSION
+      : '<span style="color:var(--red)">⚠️ 版がそろっていません（コード.gs: ' + (d.version || '古い版') + ' ／ Index: ' + INDEX_VERSION + '）</span>';
     $('today-label').innerText = d.todayLabel;
     var done = d.todayRecords.length > 0;
 
