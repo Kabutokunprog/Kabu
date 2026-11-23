@@ -158,7 +158,7 @@ function getDashboard() {
 function getMonth(ym) {
   var s = getSettings_();
   var recs = readAllRecords_();
-  var list = recs.filter(function (r) { return r.date.slice(0, 7) === ym; });
+  var list = recs.filter(function (r) { return r.date.slice(0, 7).replace('/', '-') === ym; });
   list.sort(function (a, b) { return (a.date + a.start).localeCompare(b.date + b.start); });
 
   // その月にかかる週ごとの合計（月をまたぐ週は前後の月も含めて計算）
@@ -193,7 +193,7 @@ function getYear(y) {
   var months = [];
   for (var m = 1; m <= 12; m++) {
     var ym = y + '-' + pad_(m);
-    var list = recs.filter(function (r) { return r.date.slice(0, 7) === ym; });
+    var list = recs.filter(function (r) { return r.date.slice(0, 7).replace('/', '-') === ym; });
     var sum = sumUp_(list);
     sum.ym = ym;
     months.push(sum);

@@ -377,6 +377,9 @@
   }
 
   // ---------- 勤怠表 ----------
+  // 振り返りなどから、指定した月の勤怠表を開く
+  function openMonth(ym) { curMonth = ym; go('table'); loadMonth(ym); }
+
   function loadMonth(ym) {
     curMonth = ym;
     $('month-table').innerHTML = '<div class="loading">読み込み中…</div>';
@@ -388,6 +391,7 @@
     loadMonth(y + '-' + ('0' + m).slice(-2));
   }
   function renderMonth(d) {
+    if (d.ym !== curMonth) return;  // 古い読み込み結果は無視する
     monthList = d.months.indexOf(d.ym) < 0 ? d.months.concat([d.ym]).sort().reverse() : d.months;
     $('month-select').innerHTML = monthList.map(function (m) {
       return '<option value="' + m + '"' + (m === d.ym ? ' selected' : '') + '>' + m.replace('-', '年') + '月</option>';
@@ -460,11 +464,11 @@
     var max = Math.max(1, Math.max.apply(null, d.months.map(function (m) { return m.salary; })));
     $('year-months').innerHTML = '<h3>月ごとの給与</h3><div class="sub">棒をタップするとその月の勤怠表を開きます</div>' +
       '<div class="mbars">' + d.months.map(function (m) {
-        return '<div class="m" onclick="go(\'table\');loadMonth(\'' + m.ym + '\')"><div style="font-size:9px;text-align:center;color:var(--sub)">' +
+        return '<div class="m" onclick="openMonth(\'' + m.ym + '\')"><div style="font-size:9px;text-align:center;color:var(--sub)">' +
           (m.salary ? (m.salary / 10000).toFixed(1) : '') + '</div><div class="col" style="height:' + (m.salary / max * 95) + 'px"></div></div>';
       }).join('') + '</div><div class="mlabels">' + d.months.map(function (m, i) { return '<span>' + (i + 1) + '</span>'; }).join('') + '</div>' +
       '<table style="margin-top:12px"><tr><th>月</th><th>日数</th><th>時間</th><th>給与</th></tr>' + d.months.map(function (m, i) {
-        return m.days ? '<tr class="click" onclick="go(\'table\');loadMonth(\'' + m.ym + '\')"><td>' + (i + 1) + '月</td><td>' + m.days + '</td><td>' + m.hours.toFixed(1) + '</td><td>' + m.salary.toLocaleString() + '</td></tr>' : '';
+        return m.days ? '<tr class="click" onclick="openMonth(\'' + m.ym + '\')"><td>' + (i + 1) + '月</td><td>' + m.days + '</td><td>' + m.hours.toFixed(1) + '</td><td>' + m.salary.toLocaleString() + '</td></tr>' : '';
       }).join('') + '<tr><td><b>合計</b></td><td><b>' + t.days + '</b></td><td><b>' + t.hours.toFixed(1) + '</b></td><td><b>' + t.salary.toLocaleString() + '</b></td></tr></table>';
 
     $('year-over').innerHTML = '<h3>上限を超えた週</h3>' + (d.overWeeks.length
