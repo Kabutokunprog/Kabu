@@ -434,6 +434,9 @@ function drawDeck(){
       <label class="f">向き（表と裏）</label><div class="seg">
         <button class="${!so.reverse?'on':''}" onclick="setSO('reverse',false)">${word?'単語 → 意味':'問題 → 答え（ふつう）'}</button>
         <button class="${so.reverse?'on':''}" onclick="setSO('reverse',true)">${word?'意味 → 単語':'答え → 問題（逆）'}</button></div>
+      <label class="f">答え方</label><div class="seg">
+        <button class="${so.answer!=='choice'?'on':''}" onclick="setSO('answer','flip')">めくって自己採点</button>
+        <button class="${so.answer==='choice'?'on':''}" onclick="setSO('answer','choice')">4択で答える</button></div>
       <button class="btn primary block" style="margin-top:14px;font-size:18px" onclick="startDeckStudy()">はじめる</button>
     </div>
 
@@ -574,7 +577,7 @@ function startDeckStudy(){
   if(so.order==='rand') list=shuffle(list);
   if(so.order==='chrono') list=chronoSort(list);
   const d=S.deck;
-  startStudy(list,{mode:'normal',reverse:!!so.reverse,title:d.title,word:d.card_kind==='word',
+  startStudy(list,{mode:'normal',reverse:!!so.reverse,title:d.title,word:d.card_kind==='word',choice:so.answer==='choice',pool:S.cards,
     rec:{profile_id:S.profile.id,deck_id:d.id,deck_title:d.title,subject:d.subject},back:()=>openDeck(d.id)});
 }
 // 西暦で古い順に並べる。西暦のないカードは、プリントで直前にあるカードの年に続ける
@@ -585,7 +588,7 @@ function chronoSort(list){
 let ST=null;
 // 答えは最後にまとめて記録する (途中で戻って直せるように)。途中で閉じても次回に送る。
 function startStudy(cards,o){
-  ST={cards,i:0,shown:false,res:new Array(cards.length),startedAt:new Date().toISOString(),...o};
+  ST={cards,i:0,shown:false,res:new Array(cards.length),picked:new Array(cards.length),choiceMap:{},startedAt:new Date().toISOString(),...o};
   document.body.style.overflow='hidden';
   drawStudy();
 }
@@ -624,15 +627,15 @@ function drawStudy(){
     <div class="flash">
       <div class="muted small" style="margin-bottom:6px">${esc(ST.mode==='review'?'🔁 復習フラッシュ':ST.title)}${c.deck?` ・ ${esc(c.deck.title)}`:''}
         ${r!==undefined?`<span class="chip ${r?'ok':'rev'}" style="margin-left:6px">${r?'○ 正解にした':'✕ まちがいにした'}</span>`:''}</div>
-      <button class="face-card" onclick="${ST.shown?'unflip()':'flip()'}">
+      ${ST.choice?choiceHtml(c,q,a,bigQ):`<button class="face-card" onclick="${ST.shown?'unflip()':'flip()'}">
         ${c.tag?`<span class="chip" style="margin-bottom:10px">${esc(c.tag)}</span>`:''}
         <div class="qq ${bigQ?'big':''}">${esc(q)}</div>
         ${ST.shown?`<div class="aa"><div class="ans ${longA?'long':''}">${esc(a)}</div>
           ${c.note?`<div class="note">💡 ${esc(c.note)}</div>`:''}
           ${c.example?`<div class="ex">${esc(c.example)}</div>`:''}</div>`
           :`<div class="tap-hint">タップして答えを見る</div>`}
-      </button>
-      ${ST.shown?`<div class="judge"><button class="ng" style="${r===false?'outline:3px solid var(--ng)':''}" onclick="judge(false)">✕ まちがい</button><button class="ok" style="${r===true?'outline:3px solid var(--ok)':''}" onclick="judge(true)">○ せいかい</button></div>`
+      </button>`}
+      ${ST.choice?'':ST.shown?`<div class="judge"><button class="ng" style="${r===false?'outline:3px solid var(--ng)':''}" onclick="judge(false)">✕ まちがい</button><button class="ok" style="${r===true?'outline:3px solid var(--ok)':''}" onclick="judge(true)">○ せいかい</button></div>`
         :`<button class="btn navy block" style="margin-top:14px;padding:16px;font-size:18px" onclick="flip()">答えを見る</button>`}
       <div class="row" style="margin-top:10px">
         <button class="btn ghost grow" ${ST.i===0?'disabled':''} onclick="prevCard()">‹ 前のカード</button>
@@ -641,6 +644,36 @@ function drawStudy(){
     </div></div>`;
 }
 function flip(){ST.shown=true;drawStudy()}
+// ---- 4択モード: 選択肢は同じ教材のほかのカードの答えから作る (AIは使わない)
+function makeChoices(c){
+  const key=c.id+'|'+(ST.reverse?1:0); if(ST.choiceMap[key]) return ST.choiceMap[key];
+  const side=x=>(ST.reverse?x.question:x.answer).trim(), right=side(c);
+  const seen=new Set([right]), cands=[];
+  for(const x of (ST.pool||ST.cards)){ if(x.id===c.id) continue; const t=side(x); if(!t||seen.has(t)) continue; seen.add(t); cands.push({t,x}) }
+  // 同じラベル(時代・品詞)・近い長さのものを優先して、まぎらわしい選択肢にする
+  cands.forEach(o=>{o.s=(o.x.tag&&o.x.tag===c.tag?0:2)+Math.abs(o.t.length-right.length)/Math.max(4,right.length)+Math.random()*1.2});
+  const wrong=cands.sort((p,q)=>p.s-q.s).slice(0,3).map(o=>o.t);
+  return ST.choiceMap[key]=shuffle([right,...wrong]);
+}
+function choiceHtml(c,q,a,bigQ){
+  const ch=makeChoices(c), picked=ST.picked[ST.i], done=ST.res[ST.i]!==undefined;
+  return `<div class="face-card" style="flex:0 1 auto;min-height:120px">
+      ${c.tag?`<span class="chip" style="margin-bottom:10px">${esc(c.tag)}</span>`:''}
+      <div class="qq ${bigQ?'big':''}">${esc(q)}</div></div>
+    <div style="display:grid;gap:8px;margin-top:12px;overflow:auto">
+      ${ch.map((t,k)=>{const isRight=t===a.trim(), isPicked=t===picked;
+        const st=done?(isRight?'background:var(--ok-soft);border-color:var(--ok);color:var(--ok);opacity:1;font-weight:800':isPicked?'background:var(--ng-soft);border-color:var(--ng);color:var(--ng);opacity:1':'opacity:.5'):'';
+        return `<button class="btn ghost" style="text-align:left;font-size:16px;padding:12px 14px;background:#fff;${st}" ${done?'disabled':''} onclick="pickChoice(${k})">${done&&isRight?'○ ':done&&isPicked?'✕ ':''}${esc(t)}</button>`}).join('')}
+      ${done&&(c.note||c.example)?`<div class="card" style="margin:0;padding:10px 12px">${c.note?`<div class="small">💡 ${esc(c.note)}</div>`:''}${c.example?`<div class="ex">${esc(c.example)}</div>`:''}</div>`:''}
+      ${ch.length<2?'<p class="muted small">選択肢を作るにはカードが2枚以上必要です。</p>':''}
+    </div>`;
+}
+function pickChoice(k){
+  if(ST.res[ST.i]!==undefined) return;
+  const c=ST.cards[ST.i], t=makeChoices(c)[k], ok=t===(ST.reverse?c.question:c.answer).trim();
+  ST.picked[ST.i]=t; ST.res[ST.i]=ok; keepPending(); drawStudy();
+  if(ok){const at=ST.i;setTimeout(()=>{if(ST&&ST.i===at){ST.i++;drawStudy()}},800)}
+}
 function swapSides(){ST.reverse=!ST.reverse;ST.shown=false;drawStudy();toast(ST.reverse?'裏→表の向きで出します':'ふつうの向きに戻しました',1800)}
 function editStudyCard(){
   const c=ST.cards[ST.i];
@@ -669,7 +702,7 @@ function drawResult(){
 async function retryWrong(){
   const w=ST.cards.filter((c,k)=>ST.res[k]===false), o={...ST};
   await flushStudy();
-  startStudy(shuffle(w),{mode:o.mode,reverse:o.reverse,title:o.title,word:o.word,rec:o.rec,back:o.back});
+  startStudy(shuffle(w),{mode:o.mode,reverse:o.reverse,title:o.title,word:o.word,choice:o.choice,pool:o.pool,rec:o.rec,back:o.back});
 }
 async function quitStudy(){const back=ST&&ST.back;await flushStudy();ST=null;drawStudy();if(back)back()}
 document.addEventListener('keydown',e=>{
@@ -702,6 +735,7 @@ async function renderReview(){
     <div style="display:grid;gap:10px;margin:14px 0">
       <button class="btn primary block" style="font-size:18px" ${pick(due).length?'':'disabled'} onclick="startReview(true)">今日の復習をはじめる (${pick(due).length})</button>
       <button class="btn block" onclick="startReview(false)">復習中をぜんぶやる (${pick(all).length})</button>
+      <div class="seg"><button class="${S.revAnswer!=='choice'?'on':''}" onclick="S.revAnswer='flip';renderReview()">めくって自己採点</button><button class="${S.revAnswer==='choice'?'on':''}" onclick="S.revAnswer='choice';renderReview()">4択で答える</button></div>
     </div>
     <div class="card"><h3>復習中の問題</h3><ul class="qlist">${pick(all).map(c=>{const s=c.progress.review_streak||0;return `<li>
       <div class="grow"><div class="q">${esc(c.question)}</div><div class="a">${esc(c.answer)}</div>
@@ -713,7 +747,16 @@ function startReview(onlyDue){
   let l=onlyDue?S.review.filter(isDue):S.review.slice();
   if(S.revSub) l=l.filter(c=>c.deck&&c.deck.subject===S.revSub);
   if(!l.length) return toast('問題がありません');
-  startStudy(shuffle(l),{mode:'review',title:'復習',rec:{profile_id:S.profile.id,deck_id:null,deck_title:'復習フラッシュ',subject:S.revSub||''},back:renderReview});
+  startReviewStudy(l);
+}
+async function startReviewStudy(l){
+  // 4択のときは、元の教材のカード全部から選択肢を作る
+  let pool=S.review;
+  if(S.revAnswer==='choice'){
+    toast('準備しています…',1500); pool=[...S.review];
+    for(const did of [...new Set(l.map(c=>c.deck_id))]){ try{ pool.push(...(await api('get_deck',{deck_id:did})).cards) }catch(e){} }
+  }
+  startStudy(shuffle(l),{mode:'review',title:'復習',choice:S.revAnswer==='choice',pool,rec:{profile_id:S.profile.id,deck_id:null,deck_title:'復習フラッシュ',subject:S.revSub||''},back:renderReview});
 }
 
 // ------------------------------------------------------------ テスト
