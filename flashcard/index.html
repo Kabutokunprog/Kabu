@@ -417,6 +417,7 @@ function drawDeck(){
     </div>
 
     <div class="card">
+      ${(()=>{const ri=resumeInfo('deck:'+d.id);return ri&&ri.at<ri.n?`<button class="btn navy block" style="margin-bottom:12px;font-size:17px" onclick="resumeStudy('deck:${d.id}',()=>openDeck(${d.id}),S.cards)">⏯ 前回の続きから（${ri.at+1}問目から／全${ri.n}問）</button>`:''})()}
       <h3>▶ 出題する</h3>
       <label class="f">出す順番</label>
       <div class="seg" id="segOrder">
@@ -584,7 +585,8 @@ function startDeckStudy(){
     list=freqSort(list);
   }
   const d=S.deck;
-  startStudy(list,{mode:'normal',reverse:!!so.reverse,title:d.title,word:d.card_kind==='word',choice:so.answer==='choice',pool:S.cards,
+  lsSet(resumeKeyOf('deck:'+d.id),null);
+  startStudy(list,{mode:'normal',reverse:!!so.reverse,title:d.title,word:d.card_kind==='word',choice:so.answer==='choice',pool:S.cards,resumeKey:'deck:'+d.id,
     rec:{profile_id:S.profile.id,deck_id:d.id,deck_title:d.title,subject:d.subject},back:()=>openDeck(d.id)});
 }
 // 頻出順: ★(テストに出やすさ)の高い順 → まちがえた回数が多い順 → 教材の順
@@ -613,11 +615,36 @@ function startStudy(cards,o){
 function studyPayload(){
   if(!ST) return null;
   const answers=[], wrong=[];
-  ST.cards.forEach((c,k)=>{const r=ST.res[k]; if(r===undefined) return; answers.push({card_id:c.id,correct:r}); if(!r) wrong.push({q:c.question,a:c.answer})});
+  ST.cards.forEach((c,k)=>{const r=ST.res[k]; if(r===undefined||(ST.recorded&&ST.recorded.has(k))) return; answers.push({card_id:c.id,correct:r}); if(!r) wrong.push({q:c.question,a:c.answer})});
   if(!answers.length) return null;
   return {...ST.rec,mode:ST.mode,started_at:ST.startedAt,answers,wrong_items:wrong};
 }
-function keepPending(){const p=studyPayload(); lsSet('flash_pending_session',p?JSON.stringify(p):null)}
+function keepPending(){const p=studyPayload(); lsSet('flash_pending_session',p?JSON.stringify(p):null); saveResume()}
+// ---- 途中から再開: どこまで進んだかを覚えておく (この端末に保存)
+function resumeKeyOf(k){return 'flash_resume_'+(S.profile?S.profile.id:0)+'_'+k}
+function saveResume(){
+  if(!ST||!ST.resumeKey) return;
+  const n=ST.cards.length, done=ST.res.filter(r=>r!==undefined).length;
+  if(ST.i>=n||done>=n||!done){ if(done>=n) lsSet(resumeKeyOf(ST.resumeKey),null); return }
+  const slim=c=>({id:c.id,question:c.question,answer:c.answer,note:c.note||'',example:c.example||'',tag:c.tag||'',deck_id:c.deck_id,
+    deck:c.deck?{title:c.deck.title,card_kind:c.deck.card_kind}:undefined});
+  lsSet(resumeKeyOf(ST.resumeKey),JSON.stringify({cards:ST.cards.map(slim),res:ST.res,picked:ST.picked,i:ST.i,savedAt:Date.now(),
+    opts:{mode:ST.mode,reverse:ST.reverse,title:ST.title,word:ST.word,choice:ST.choice,rec:ST.rec}}));
+}
+function loadResume(k){try{const r=JSON.parse(lsGet(resumeKeyOf(k))||'null');if(r&&Date.now()-r.savedAt<30*864e5)return r}catch(e){}return null}
+function resumeInfo(k){const r=loadResume(k);if(!r)return null;const n=r.cards.length, at=r.res.findIndex(x=>x===null||x===undefined);return {n,at:at<0?n:at,savedAt:r.savedAt}}
+function resumeStudy(k,back,fresh){
+  const r=loadResume(k); if(!r) return toast('続きが見つかりませんでした');
+  // 教材の場合は、最新のカードの中身を使う(消したカードは飛ばす)
+  let cards=r.cards, res=r.res, picked=r.picked||[];
+  if(fresh){ const byId=new Map(fresh.map(c=>[c.id,c])); const keep=cards.map((c,k)=>[byId.get(c.id),k]).filter(x=>x[0]);
+    cards=keep.map(x=>x[0]); res=keep.map(x=>r.res[x[1]]); picked=keep.map(x=>picked[x[1]]) }
+  if(!cards.length){ lsSet(resumeKeyOf(k),null); return toast('続きのカードがもうありません') }
+  startStudy(cards,{...r.opts,pool:fresh||cards,resumeKey:k,back});
+  ST.res=res.map(x=>x===null?undefined:x); ST.picked=picked; ST.recorded=new Set(ST.res.map((x,i)=>x===undefined?-1:i).filter(i=>i>=0));
+  const first=ST.res.findIndex(x=>x===undefined); ST.i=first<0?cards.length:first; ST.shown=false;
+  toast(`${ST.i+1}問目から再開します`,2000); drawStudy();
+}
 async function flushStudy(){
   const p=studyPayload(); if(!p||ST.flushed) return; ST.flushed=true; lsSet('flash_pending_session',null);
   try{ await api('finish_session',p) }catch(e){ lsSet('flash_pending_session',JSON.stringify(p)); toast('記録を送れませんでした。次に開いたときに送ります') }
@@ -698,10 +725,11 @@ function editStudyCard(){
   openCardEditor(c,(data)=>{Object.assign(c,data);drawStudy()});
 }
 function unflip(){ST.shown=false;drawStudy()}
-function judge(ok){ST.res[ST.i]=ok;keepPending();ST.i++;ST.shown=ST.res[ST.i]!==undefined;drawStudy()}
+function judge(ok){ST.res[ST.i]=ok;ST.i++;keepPending();ST.shown=ST.res[ST.i]!==undefined;drawStudy()}
 function prevCard(){if(ST.i>0){ST.i--;ST.shown=true;drawStudy()}}
 function nextCard(){if(ST.res[ST.i]!==undefined){ST.i++;ST.shown=ST.res[ST.i]!==undefined;drawStudy()}}
 function drawResult(){
+  if(ST.resumeKey) lsSet(resumeKeyOf(ST.resumeKey),null);
   const done=ST.res.filter(r=>r!==undefined), ok=done.filter(r=>r).length, n=done.length;
   const wrong=ST.cards.filter((c,k)=>ST.res[k]===false);
   const pct=n?Math.round(ok/n*100):0;
@@ -722,7 +750,7 @@ async function retryWrong(){
   await flushStudy();
   startStudy(shuffle(w),{mode:o.mode,reverse:o.reverse,title:o.title,word:o.word,choice:o.choice,pool:o.pool,rec:o.rec,back:o.back});
 }
-async function quitStudy(){const back=ST&&ST.back;await flushStudy();ST=null;drawStudy();if(back)back()}
+async function quitStudy(){const back=ST&&ST.back;saveResume();await flushStudy();ST=null;drawStudy();if(back)back()}
 document.addEventListener('keydown',e=>{
   if(!ST||ST.i>=ST.cards.length) return;
   if(e.key==='ArrowLeft'){prevCard();return}
@@ -751,6 +779,7 @@ async function renderReview(){
     ${all.length?`
     ${subs.length>1?`<label class="f">科目</label><select class="t" onchange="S.revSub=this.value;renderReview()">${opts(subs,S.revSub,'すべての科目')}</select>`:''}
     <div style="display:grid;gap:10px;margin:14px 0">
+      ${(()=>{const ri=resumeInfo('review');return ri&&ri.at<ri.n?`<button class="btn navy block" style="font-size:17px" onclick="resumeStudy('review',renderReview,null)">⏯ 前回の続きから（${ri.at+1}問目から／全${ri.n}問）</button>`:''})()}
       <button class="btn primary block" style="font-size:18px" ${pick(due).length?'':'disabled'} onclick="startReview(true)">今日の復習をはじめる (${pick(due).length})</button>
       <button class="btn block" onclick="startReview(false)">復習中をぜんぶやる (${pick(all).length})</button>
       <div class="seg"><button class="${S.revAnswer!=='choice'?'on':''}" onclick="S.revAnswer='flip';renderReview()">めくって自己採点</button><button class="${S.revAnswer==='choice'?'on':''}" onclick="S.revAnswer='choice';renderReview()">4択で答える</button></div>
@@ -774,7 +803,8 @@ async function startReviewStudy(l){
     toast('準備しています…',1500); pool=[...S.review];
     for(const did of [...new Set(l.map(c=>c.deck_id))]){ try{ pool.push(...(await api('get_deck',{deck_id:did})).cards) }catch(e){} }
   }
-  startStudy(shuffle(l),{mode:'review',title:'復習',choice:S.revAnswer==='choice',pool,rec:{profile_id:S.profile.id,deck_id:null,deck_title:'復習フラッシュ',subject:S.revSub||''},back:renderReview});
+  lsSet(resumeKeyOf('review'),null);
+  startStudy(shuffle(l),{mode:'review',title:'復習',choice:S.revAnswer==='choice',pool,resumeKey:'review',rec:{profile_id:S.profile.id,deck_id:null,deck_title:'復習フラッシュ',subject:S.revSub||''},back:renderReview});
 }
 
 // ------------------------------------------------------------ テスト
