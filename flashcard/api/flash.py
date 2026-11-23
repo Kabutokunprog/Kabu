@@ -688,6 +688,16 @@ def handle(action, body, passcode):
             raise ApiError("教材の内容が空です")
         data = ai_generate(body)
         data["model_label"] = MODEL_LABEL.get(pick_model(body.get("model")), "")
+        if body.get("save"):
+            # 作ったらサーバーでそのまま保存する (途中でスマホを閉じても教材が残るように)
+            deck = {k: str(body.get(k) or "") for k in ("grade", "term", "subject", "source_text")}
+            deck["title"] = str(body.get("title") or "").strip() or data.get("title") or "無題の教材"
+            deck["card_kind"] = "word" if data.get("card_kind") == "word" else "qa"
+            deck["profile_id"] = int(body["profile_id"])
+            deck["memo"] = f"AI: {data['model_label']}" if data["model_label"] else ""
+            d = s.create_deck(deck, data["cards"])
+            data["deck_id"] = d["id"]
+            data["title"] = deck["title"]
         return data
 
     if action == "create_deck":

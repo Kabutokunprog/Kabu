@@ -30,6 +30,8 @@ header.top .wrap{display:flex;align-items:center;gap:10px}
 header.top h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.04em;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who{background:rgba(255,255,255,.14);border:0;color:#fff;border-radius:999px;padding:5px 12px;font-size:14px;white-space:nowrap}
 main{padding:16px 0 110px}
+#jobBar{position:sticky;top:calc(env(safe-area-inset-top) + 50px);z-index:19;background:var(--accent-soft);border-bottom:1px solid #ffd9c7}
+#jobBar button{width:100%;border:0;background:none;padding:9px 0;display:flex;justify-content:space-between;gap:8px;font-size:14px;font-weight:700;color:#a3431b;text-align:left}
 nav.tabs{position:fixed;bottom:0;left:0;right:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);
   padding:6px 0 calc(env(safe-area-inset-bottom) + 6px)}
 nav.tabs .wrap{display:flex}
@@ -158,6 +160,7 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
   </div>
 </header>
 
+<div id="jobBar" class="hidden"></div>
 <main><div class="wrap" id="view"></div></main>
 
 <nav class="tabs hidden" id="tabs"><div class="wrap">
@@ -620,11 +623,10 @@ function startReview(onlyDue){
 
 // ------------------------------------------------------------ 作る
 function renderMake(){
-  if(S.make&&S.make.running) return drawMakeProgress();
   const last=JSON.parse(lsGet('flash_last_'+S.profile.id)||'{}');
   S.make=S.make||{files:[],style:'auto',grade:last.grade||'',term:last.term||'',subject:last.subject||'',useText:false};
   const m=S.make;
-  setView(`<h2>✨ 教材から問題を作る</h2>
+  setView(`<div id="jobList"></div><h2>✨ 教材から問題を作る</h2>
     <p class="muted small">${esc(S.profile.emoji)} ${esc(S.profile.name)} の教材として登録します。</p>
     <div class="card">
       <h3>① どの教材？</h3>
@@ -671,8 +673,9 @@ function renderMake(){
       <div class="order-chips">${ORDER_EXAMPLES.map(t=>`<button onclick="addOrder('${t}')">＋${t}</button>`).join('')}</div>
     </div>
     <button class="btn primary block" style="font-size:18px;padding:16px" onclick="runMake()">✨ 問題を作る</button>
-    <p class="muted small center">写真の枚数によって1〜3分ほどかかります。</p>`);
+    <p class="muted small center">1〜3分ほどかかりますが、作っている間もほかの画面（学習・復習・別の教材づくり）を使えます。<br>読み取りが終わるまではアプリを閉じないでください。</p>`);
   if(!m.useText) drawThumbs();
+  drawJobs();
 }
 function mkSave(){
   const m=S.make, v=id=>{const e=$(id);return e?e.value:undefined};
@@ -728,85 +731,129 @@ async function pdfToJpegs(file,onPage){
   }
   return out;
 }
-function drawMakeProgress(){
-  const m=S.make;
-  const el=s=>m.step===s?'now':(m.doneSteps||[]).includes(s)?'done':'';
-  // 全体の進み具合 (準備10% / 読み取り50% / 問題づくり35% / 保存5%)
-  const genExp=m.genExpect||60, genT=m.step==='gen'?Math.min(0.95,(m.sec-(m.genStart||m.sec))/genExp):0;
+// ---- 作成ジョブ: 裏で進めるので、ほかの画面を使っていてOK
+S.jobs=[]; let jobSeq=0;
+function jobPct(j){
+  const genExp=j.genExpect||60, genT=j.step==='gen'?Math.min(0.95,(j.sec-(j.genStart||j.sec))/genExp):0;
   let pct=0;
-  if(m.step==='prep') pct=10*(m.prepFrac||0);
-  else if(m.step==='read') pct=10+50*((m.readDone||0)/(m.readTotal||1));
-  else if(m.step==='gen') pct=60+35*genT;
-  else if(m.step==='save') pct=97;
-  if(m.useText&&m.step==='gen') pct=10+85*genT;
-  pct=Math.max(m.lastPct||0,Math.round(pct)); m.lastPct=pct;
-  const mm=Math.floor((m.sec||0)/60), ss=(m.sec||0)%60;
-  setView(`<h2>✨ 問題を作っています</h2><div class="card">
-    <div class="row"><b class="grow" style="font-size:28px;color:var(--navy)">${pct}%</b><span class="muted small">経過 ${mm?mm+'分':''}${ss}秒</span></div>
-    <div class="bar" style="height:12px;border-radius:6px"><i style="width:${pct}%;background:var(--accent)"></i></div>
-    ${m.step==='gen'?`<p class="small" style="margin:8px 0 0">AIが${m.countLabel||''}カードを考えています（${m.modelLabel||''}）。${genT>=0.95?'もう少しです…':`あと約${Math.max(10,Math.round(genExp-(m.sec-(m.genStart||m.sec))))}秒`}</p>`:''}
-    <ul class="steps">
-      <li class="${el('prep')}">${el('prep')==='done'?'✅':el('prep')==='now'?'<span class="spinner"></span>':'・'} 写真・PDFを準備</li>
-      <li class="${el('read')}">${el('read')==='done'?'✅':el('read')==='now'?'<span class="spinner"></span>':'・'} 教材を読み取り ${m.readTotal?`（${m.readPages||0}/${m.pageCount||0}ページ）`:''}</li>
-      <li class="${el('gen')}">${el('gen')==='done'?'✅':el('gen')==='now'?'<span class="spinner"></span>':'・'} AIが問題を作成</li>
-      <li class="${el('save')}">${el('save')==='done'?'✅':el('save')==='now'?'<span class="spinner"></span>':'・'} 保存</li>
-    </ul>
-    <p class="muted small">${esc(m.msg||'')}</p><p class="muted small">この画面のままお待ちください（${m.sec||0}秒）</p></div>`);
+  if(j.step==='prep') pct=10*(j.prepFrac||0);
+  else if(j.step==='read') pct=10+50*((j.readDone||0)/(j.readTotal||1));
+  else if(j.step==='gen') pct=(j.useText?10:60)+(j.useText?85:35)*genT;
+  else if(j.step==='done') pct=100;
+  pct=Math.max(j.lastPct||0,Math.round(pct)); j.lastPct=pct; return pct;
 }
-async function runMake(){
+function jobStatusText(j){
+  if(j.step==='done') return `✅ ${j.cardCount}枚できました`;
+  if(j.step==='error') return `⚠️ ${j.error}`;
+  if(j.step==='prep') return '写真・PDFを準備中';
+  if(j.step==='read') return `教材を読み取り中（${j.readPages||0}/${j.pageCount||0}ページ）`;
+  const genExp=j.genExpect||60, left=Math.round(genExp-(j.sec-(j.genStart||j.sec)));
+  return `AIが${j.countLabel||''}カードを考え中（${j.modelLabel}）・${left>5?'あと約'+left+'秒':'もう少し'}`;
+}
+function jobCardHtml(j){
+  const pct=jobPct(j), mm=Math.floor(j.sec/60), ss=j.sec%60;
+  return `<div class="card" style="margin-bottom:10px">
+    <div class="row"><b class="grow">${esc(j.label)}</b><span class="muted small">${esc(j.profileName)} ・ ${mm?mm+'分':''}${ss}秒</span></div>
+    <div class="row" style="margin-top:6px"><div class="bar grow" style="height:10px;margin:0"><i style="width:${pct}%;background:${j.step==='error'?'var(--ng)':j.step==='done'?'var(--ok)':'var(--accent)'}"></i></div><b style="width:44px;text-align:right">${pct}%</b></div>
+    <div class="small" style="margin-top:6px">${esc(jobStatusText(j))}</div>
+    ${j.step==='done'?`<div class="row" style="margin-top:8px"><button class="btn primary sm" onclick="openJobDeck(${j.id})">問題の一覧を見る</button><button class="btn sm ghost" onclick="dismissJob(${j.id})">閉じる</button></div>`:''}
+    ${j.step==='error'?`<div class="row" style="margin-top:8px"><button class="btn sm" onclick="retryJob(${j.id})">入力にもどす</button><button class="btn sm ghost" onclick="dismissJob(${j.id})">閉じる</button></div>`:''}
+  </div>`;
+}
+function drawJobs(){
+  // ヘッダーの下の小さなバー (どの画面でも見える)
+  const bar=$('#jobBar'), act=S.jobs;
+  if(!act.length){bar.classList.add('hidden');}
+  else{
+    const running=act.filter(j=>!['done','error'].includes(j.step)), done=act.filter(j=>j.step==='done'), err=act.filter(j=>j.step==='error');
+    let t='';
+    if(running.length){const j=running[0];t=`✨ ${esc(j.label)} を作成中 ${jobPct(j)}%${running.length>1?` ほか${running.length-1}件`:''}`}
+    else if(done.length) t=`✅ ${esc(done[0].label)}：${done[0].cardCount}枚できました！`;
+    else if(err.length) t=`⚠️ 作成できなかった教材があります`;
+    bar.innerHTML=`<div class="wrap"><button onclick="showTab('make')">${t}<span>見る ›</span></button></div>`;
+    bar.classList.remove('hidden');
+  }
+  const box=$('#jobList'); if(box) box.innerHTML=act.length?`<h3 style="margin:0 0 8px">作成中・できた教材</h3>${act.map(jobCardHtml).join('')}`:'';
+}
+setInterval(()=>{let any=false;for(const j of S.jobs){if(!['done','error'].includes(j.step)){j.sec++;any=true}}if(any||S.jobs.length)drawJobs()},1000);
+function openJobDeck(id){const j=S.jobs.find(x=>x.id===id);dismissJob(id);if(j&&S.profile&&j.profileId!==S.profile.id){enterProfile(j.profileId)}openDeck(j.deckId)}
+function dismissJob(id){S.jobs=S.jobs.filter(j=>j.id!==id);drawJobs()}
+function retryJob(id){const j=S.jobs.find(x=>x.id===id);dismissJob(id);if(j){S.make=j.form;S.make.running=false;showTab('make')}}
+let wakeLock=null;
+async function keepAwake(on){try{if(on&&!wakeLock&&navigator.wakeLock){wakeLock=await navigator.wakeLock.request('screen');wakeLock.addEventListener('release',()=>{wakeLock=null})}if(!on&&wakeLock){await wakeLock.release();wakeLock=null}}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.jobs.some(j=>!['done','error'].includes(j.step)))keepAwake(true)});
+function savePending(){try{lsSet('flash_pending',JSON.stringify(S.jobs.filter(j=>j.step==='gen').map(j=>({label:j.label,profileId:j.profileId,startedAt:j.startedAt}))))}catch(e){}}
+
+function runMake(){
   mkSave(); const m=S.make;
   if(m.useText){ if(!(m.text||'').trim()) return toast('教材の文章を貼ってください') }
   else if(!m.files.length) return toast('写真かPDFを追加してください');
   lsSet('flash_last_'+S.profile.id,JSON.stringify({grade:m.grade,term:m.term,subject:m.subject}));
-  m.running=true; m.doneSteps=[]; m.step='prep'; m.sec=0; m.msg=''; m.readMsg='';
-  const timer=setInterval(()=>{m.sec++; if(S.tab==='make') drawMakeProgress()},1000);
-  const done=s=>{m.doneSteps.push(s)};
+  const nReq=(m.countOn&&m.count&&m.count!=='auto')?parseInt(m.count,10):0;
+  const j={id:++jobSeq,form:m,label:(m.title||'').trim()||[m.subject,'の教材'].filter(Boolean).join('')||'新しい教材',
+    profileId:S.profile.id,profileName:S.profile.name,useText:!!m.useText,step:'prep',sec:0,startedAt:Date.now(),
+    modelLabel:m.model==='sonnet'?'Sonnet':'Opus',countLabel:nReq?`約${nReq}枚の`:'',nReq};
+  S.jobs.unshift(j);
+  // 入力欄は空に戻して、すぐ次の教材も作れるようにする
+  const last=JSON.parse(lsGet('flash_last_'+S.profile.id)||'{}');
+  S.make={files:[],style:m.style,model:m.model,grade:last.grade||'',term:last.term||'',subject:last.subject||'',useText:false};
+  toast('作成を始めました。ほかの画面を使っていて大丈夫です',3500);
+  keepAwake(true);
+  runJob(j);
+  renderMake();
+}
+async function runJob(j){
+  const m=j.form;
   try{
     let source='';
-    if(m.useText){ source=m.text; done('prep'); done('read') }
+    if(m.useText){ source=m.text }
     else{
       // 1) 画像をそろえる (PDF は1ページずつ画像にする)
       const pages=[];
       for(const f of m.files){
         const fi=m.files.indexOf(f), nf=m.files.length;
-        if(f.kind==='pdf'){ m.msg=`${f.label} を画像にしています…`; pages.push(...await pdfToJpegs(f.file,(p,n)=>{m.msg=`${f.label}: ${p}/${n}ページ`;m.prepFrac=(fi+p/n)/nf})) }
-        else { pages.push(await fileToJpeg(f.file)); m.prepFrac=(fi+1)/nf }
+        if(f.kind==='pdf'){ pages.push(...await pdfToJpegs(f.file,(p,n)=>{j.prepFrac=(fi+p/n)/nf})) }
+        else { pages.push(await fileToJpeg(f.file)); j.prepFrac=(fi+1)/nf }
       }
-      done('prep'); m.step='read';
+      j.step='read';
       // 2) まとまりごとに読み取り (1回に送る量を小さく保つ)
       const batches=[]; let cur=[], size=0;
       for(const p of pages){ if(cur.length&&(cur.length>=5||size+p.length>3.2e6)){batches.push(cur);cur=[];size=0} cur.push(p); size+=p.length }
       if(cur.length) batches.push(cur);
-      const texts=[]; let off=0; m.readTotal=batches.length; m.readDone=0; m.pageCount=pages.length; m.readPages=0;
+      const texts=[]; let off=0; j.readTotal=batches.length; j.readDone=0; j.pageCount=pages.length; j.readPages=0;
       for(let i=0;i<batches.length;i++){
-        m.readMsg=`(${i+1}/${batches.length})`; m.msg=`${pages.length}ページを読み取っています`;
-        const r=await api('transcribe',{images:batches[i],page_offset:off,model:m.model||'opus'}); texts.push(r.text); off+=batches[i].length; m.readDone=i+1; m.readPages=off;
+        const r=await api('transcribe',{images:batches[i],page_offset:off,model:m.model||'opus'}); texts.push(r.text); off+=batches[i].length; j.readDone=i+1; j.readPages=off;
       }
-      source=texts.join('\n\n'); done('read');
+      source=texts.join('\n\n');
     }
-    // 3) 問題づくり
-    const nReq=(m.countOn&&m.count&&m.count!=='auto')?parseInt(m.count,10):0;
-    m.step='gen'; m.msg=''; m.genStart=m.sec; m.modelLabel=(m.model==='sonnet'?'Sonnet':'Opus');
-    m.countLabel=nReq?`約${nReq}枚の`:'';
-    m.genExpect=Math.round((m.model==='sonnet'?25:40)+(nReq||Math.min(120,source.length/60))*(m.model==='sonnet'?0.7:1.1));
-    const g=await api('generate',{source_text:source,style:m.style,grade:m.grade,term:m.term,subject:m.subject,count:nReq?Math.max(5,Math.min(150,nReq)):'auto',
-      include_written:!!m.written,include_related:!!m.related,instructions:m.order||'',model:m.model||'opus'});
-    done('gen');
-    // 4) 保存
-    m.step='save'; m.msg=`${g.cards.length}枚できました。保存しています…`;
-    const sv=await api('create_deck',{profile_id:S.profile.id,title:(m.title||'').trim()||g.title,grade:m.grade,term:m.term,subject:m.subject,card_kind:g.card_kind,source_text:source,cards:g.cards,memo:g.model_label?('AI: '+g.model_label):''});
-    done('save'); clearInterval(timer);
-    S.make=null;
-    setView(`<div class="card result"><div style="font-size:48px">🎉</div>
-      <div class="big">${g.cards.length}枚</div><p>フラッシュカードができました！</p>
-      <p class="muted small">「${esc((m.title||'').trim()||g.title)}」</p>
-      <div style="display:grid;gap:10px;margin-top:14px"><button class="btn primary block" onclick="openDeck(${sv.deck_id})">問題の一覧を見る</button>
-      <button class="btn block" onclick="showTab('make')">続けて別の教材を作る</button></div></div>`);
+    // 3) 問題づくり + 保存 (サーバー側で保存まで行う)
+    j.step='gen'; j.genStart=j.sec;
+    j.genExpect=Math.round((m.model==='sonnet'?25:40)+(j.nReq||Math.min(120,source.length/60))*(m.model==='sonnet'?0.7:1.1));
+    savePending();
+    const g=await api('generate',{save:true,profile_id:j.profileId,title:(m.title||'').trim(),source_text:source,style:m.style,grade:m.grade,term:m.term,subject:m.subject,
+      count:j.nReq?Math.max(5,Math.min(150,j.nReq)):'auto',include_written:!!m.written,include_related:!!m.related,instructions:m.order||'',model:m.model||'opus'});
+    j.step='done'; j.cardCount=g.cards.length; j.deckId=g.deck_id; j.label=g.title;
+    toast(`✅「${g.title}」${g.cards.length}枚できました！`,4000);
+    if(S.tab==='decks'&&S.profile&&S.profile.id===j.profileId&&!S.deck) renderDecks();
   }catch(e){
-    clearInterval(timer); m.running=false;
-    setView(`<div class="card"><h3>うまく作れませんでした</h3><p>${esc(e.message)}</p>
-      <button class="btn primary block" onclick="renderMake()">もどる（入力はそのままです）</button></div>`);
+    j.step='error'; j.error=e.message;
   }
+  savePending();
+  if(!S.jobs.some(x=>!['done','error'].includes(x.step))) keepAwake(false);
+  drawJobs();
+}
+// アプリを閉じている間に、サーバーで作成が終わっていないか確認する
+async function checkPending(){
+  let pend=[]; try{pend=JSON.parse(lsGet('flash_pending')||'[]')}catch(e){}
+  pend=pend.filter(p=>Date.now()-p.startedAt<30*60e3); if(!pend.length){lsSet('flash_pending',null);return}
+  for(const p of pend){
+    try{ const r=await api('list_decks',{profile_id:p.profileId});
+      const d=r.decks.find(d=>new Date(d.created_at).getTime()>=p.startedAt-60e3);
+      if(d){ S.jobs.unshift({id:++jobSeq,label:d.title,profileId:p.profileId,profileName:(S.profiles.find(x=>x.id===p.profileId)||{}).name||'',step:'done',sec:0,cardCount:d.card_count,deckId:d.id}); p.found=true }
+    }catch(e){}
+  }
+  lsSet('flash_pending',JSON.stringify(pend.filter(p=>!p.found&&!S.jobs.some(j=>j.startedAt===p.startedAt))));
+  drawJobs();
 }
 
 // ------------------------------------------------------------ 設定
@@ -843,6 +890,7 @@ async function changePass(){
 (async()=>{
   const pid=+lsGet('flash_profile');
   await boot();
+  checkPending();
   if(pid&&S.profiles.length&&S.profiles.find(p=>p.id===pid)) enterProfile(pid);
 })();
 </script>
