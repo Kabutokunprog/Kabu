@@ -189,8 +189,7 @@
           <select id="s-wstart"><option>月</option><option>火</option><option>水</option><option>木</option><option>金</option><option>土</option><option>日</option></select></div>
         <div><label>標準の出勤時刻</label><input type="time" id="s-start"></div>
         <div><label>金曜通知の時刻</label><input type="number" id="s-hour" min="0" max="23"></div>
-        <div><label>学生ですか</label><select id="s-student"><option>はい</option><option>いいえ</option></select></div>
-        <div><label>19〜22歳ですか</label><select id="s-young"><option>はい</option><option>いいえ</option></select></div>
+        <div><label>立場（税金の説明）</label><select id="s-role"><option>配偶者</option><option>学生</option><option>その他</option></select></div>
       </div>
       <label>通知先メール（空欄なら自分のGmail）</label><input type="email" id="s-mail">
       <button class="btn btn-solid" style="width:100%;margin-top:12px;" onclick="saveSettings()">保存</button>
@@ -511,7 +510,7 @@
       var s = D.settings;
       $('s-limit').value = s['週の上限時間']; $('s-wstart').value = String(s['週の始まり']).charAt(0);
       $('s-start').value = s['標準の出勤時刻']; $('s-hour').value = s['金曜通知の時刻'];
-      $('s-student').value = s['学生']; $('s-young').value = s['19〜22歳']; $('s-mail').value = s['通知先メール'];
+      $('s-role').value = s['立場']; $('s-mail').value = s['通知先メール'];
     }
   }
   function saveWage() {
@@ -528,7 +527,7 @@
     call('saveSettings', [{
       '週の上限時間': Number($('s-limit').value) || 20, '週の始まり': $('s-wstart').value,
       '標準の出勤時刻': $('s-start').value || '09:00', '金曜通知の時刻': Number($('s-hour').value) || 8,
-      '学生': $('s-student').value, '19〜22歳': $('s-young').value, '通知先メール': $('s-mail').value.trim()
+      '立場': $('s-role').value, '通知先メール': $('s-mail').value.trim()
     }], function (m) { setMsg('set-msg')(m + '\n（通知の時刻を変えた場合は「オンにする」をもう一度押してください）'); });
   }
 

@@ -9,7 +9,7 @@
  */
 
 // 時給履歴がまだ1件もないときに使う時給（最初の1回だけ使われます）
-var YOUR_HOURLY_WAGE = 1500;
+var YOUR_HOURLY_WAGE = 1230;
 
 var TZ = 'Asia/Tokyo';
 var SETTINGS_SHEET = '設定';
@@ -24,8 +24,7 @@ var DEFAULT_SETTINGS = {
   '標準の出勤時刻': '09:00',
   '通知先メール': '',          // 空欄なら自分のGmail
   '金曜通知の時刻': 8,         // 金曜日の何時に通知するか（0〜23）
-  '学生': 'はい',              // はい / いいえ
-  '19〜22歳': 'はい'           // はい / いいえ（12/31時点の年齢）
+  '立場': '配偶者'             // 配偶者 / 学生 / その他（税金の説明が変わります）
 };
 var SETTING_NOTES = {
   '週の上限時間': 'この時間を超えないようにお知らせします',
@@ -33,8 +32,7 @@ var SETTING_NOTES = {
   '標準の出勤時刻': '出勤ボタンを押さなかった日はこの時刻で計算します',
   '通知先メール': '空欄なら自分のGmailに届きます',
   '金曜通知の時刻': '金曜日の何時ごろにメールを送るか',
-  '学生': '税金・社会保険の説明を切り替えます',
-  '19〜22歳': '扶養の説明を切り替えます（その年の12/31時点）'
+  '立場': '配偶者・学生・その他 のどれか。税金・扶養の説明が切り替わります'
 };
 var WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -259,13 +257,12 @@ function updateRecord(sheetName, row, origDate, date, start, end) {
     var d = normDate_(date), st = normTime_(start), en = normTime_(end);
     if (!d || !st || !en) throw new Error('日付・時刻を正しく入力してください');
     var sheet = checkRow_(sheetName, row, origDate);
-    if (d.slice(0, 7).replace('/', '-') === sheetName) {
+    if (d === origDate) {
       var hours = calcHours_(st, en);
       var wage = wageFor_(d, getWageHistory_());
       sheet.getRange(row, 1, 1, 6).setValues([[d, st, en, hours, Math.floor(hours * wage), wage]]);
-      sortSheet_(sheet);
     } else {
-      // 別の月に移す
+      // 日付が変わったら、正しい位置に入れ直す
       sheet.deleteRow(row);
       writeRecord_(d, st, en);
     }
@@ -306,7 +303,7 @@ function addWage(fromDate, wage) {
   }
   sortWageSheet_(sh);
   var n = recalcAll();
-  return d + ' から時給 ' + wage.toLocaleString() + '円 にしました（' + n + '件を計算し直しました）';
+  return d + ' から時給 ' + wage.toLocaleString() + '円 にしました（' + n + '件の給与が変わりました）';
 }
 
 function deleteWage(row) {
@@ -314,7 +311,7 @@ function deleteWage(row) {
   if (sh.getLastRow() <= 2) throw new Error('時給は最低1件必要です');
   sh.deleteRow(Number(row));
   var n = recalcAll();
-  return '削除しました（' + n + '件を計算し直しました）';
+  return '削除しました（' + n + '件の給与が変わりました）';
 }
 
 /**
@@ -330,18 +327,19 @@ function recalcAll() {
     sheet.getRange(1, 6).setValue(HEADER[5]).setFontWeight('bold');
     var rng = sheet.getRange(2, 1, last - 1, 6);
     var vals = rng.getValues(), disp = rng.getDisplayValues();
-    var out = [];
     for (var i = 0; i < vals.length; i++) {
       var d = cellDate_(vals[i][0], disp[i][0]);
       var st = cellTime_(vals[i][1], disp[i][1]);
       var en = cellTime_(vals[i][2], disp[i][2]);
-      if (!d || !st || !en) { out.push([vals[i][3], vals[i][4], vals[i][5]]); continue; }
+      // 合計行やメモの行（日付・時刻がない行）は触らない
+      if (!d || !st || !en) continue;
       var h = calcHours_(st, en);
       var w = wageFor_(d, hist);
-      out.push([h, Math.floor(h * w), w]);
+      var sal = Math.floor(h * w);
+      if (Math.abs(Number(vals[i][3]) - h) < 1e-9 && Number(vals[i][4]) === sal && Number(vals[i][5]) === w) continue;
+      sheet.getRange(i + 2, 4, 1, 3).setValues([[h, sal, w]]);
       count++;
     }
-    sheet.getRange(2, 4, out.length, 3).setValues(out);
     formatSheet_(sheet);
   });
   return count;
@@ -544,9 +542,27 @@ function formatSheet_(sheet) {
   sheet.getRange('E:F').setNumberFormat('#,##0');
 }
 
-function sortSheet_(sheet) {
+/**
+ * 新しい記録を入れる行番号を決める（日付順の位置）。
+ * 合計行やメモの行は並べ替えずにそのまま下に残します。
+ */
+function insertRowFor_(sheet, date, start) {
   var last = sheet.getLastRow();
-  if (last > 2) sheet.getRange(2, 1, last - 1, 6).sort([{ column: 1 }, { column: 2 }]);
+  var key = date + ' ' + start;
+  var after = 1; // 見出し行の下
+  if (last >= 2) {
+    var rng = sheet.getRange(2, 1, last - 1, 2);
+    var vals = rng.getValues(), disp = rng.getDisplayValues();
+    for (var i = 0; i < vals.length; i++) {
+      var d = cellDate_(vals[i][0], disp[i][0]);
+      if (!d) continue;
+      var k = d + ' ' + (cellTime_(vals[i][1], disp[i][1]) || '');
+      if (k <= key) after = i + 2;
+    }
+  }
+  if (after >= sheet.getLastRow()) return after + 1;  // 一番下に追加
+  sheet.insertRowAfter(after);
+  return after + 1;
 }
 
 /** 1件書き込む（今までと同じ形式） */
@@ -556,8 +572,8 @@ function writeRecord_(date, start, end) {
   var hours = calcHours_(start, end);
   var wage = wageFor_(date, getWageHistory_());
   var salary = Math.floor(hours * wage);
-  sheet.appendRow([date, start, end, hours, salary, wage]);
-  sortSheet_(sheet);
+  var row = insertRowFor_(sheet, date, start);
+  sheet.getRange(row, 1, 1, 6).setValues([[date, start, end, hours, salary, wage]]);
   return { hours: hours, salary: salary, wage: wage };
 }
 
@@ -658,40 +674,59 @@ function projectYear_(yearRecs, today) {
 /**
  * 年収の壁（2026年11月時点の制度をもとにした目安）
  * 金額や条件は法律改正で変わるので、毎年見直してください。
+ * 「立場」（配偶者 / 学生 / その他）で説明を切り替えます。
  */
 function buildWalls_(year, actual, projection, s) {
-  var student = String(s['学生']) === 'はい';
-  var young = String(s['19〜22歳']) === 'はい';
-  var taxLine = year <= 2025 ? 1600000 : 1780000;
-  var depLine = year <= 2025 ? 1230000 : 1360000;
-  var walls = [
-    { amount: 1100000, title: '住民税がかかり始める', who: '自分',
-      desc: '年収がおよそ110万円を超えると住民税がかかり始めます（お住まいの市区町村で少し前後します）。金額は1年で数千円〜数万円程度で、翌年に払います。' },
-    { amount: depLine, title: young ? '親の扶養控除が減り始める' : '家族の扶養控除の対象外になる', who: '家族',
-      desc: young
-        ? '19〜22歳は、この金額を超えても150万円くらいまでは親の税金の控除は満額のまま（特定親族特別控除）。それを超えると少しずつ減ります。親の税金が増えるので要相談。'
-        : 'この金額を超えると、家族（親など）が税金の「扶養控除」を受けられなくなり、家族の税金が増えます。' },
-    { amount: young ? 1500000 : 1300000, title: '家族の健康保険の扶養から外れる', who: '自分',
-      desc: (young ? '19〜22歳はこのラインが150万円です（2025年10月〜）。' : '') +
-        '超えると家族の健康保険から外れ、自分で国民健康保険・国民年金に入る必要があり、年に約20〜30万円の負担になります。いちばん影響が大きい壁です。' },
-    { amount: taxLine, title: '自分に所得税がかかり始める', who: '自分',
-      desc: (year <= 2025 ? '2025年分は160万円。' : '2026年分から178万円に引き上げられました。') +
-        '給料から引かれていた所得税は、年末調整で戻ってくることが多いです。' }
-  ];
+  var role = String(s['立場'] || '配偶者');
+  var old = year <= 2025;
+  var taxLine = old ? 1600000 : 1780000;
+  var depLine = old ? 1230000 : 1360000;
+  var juumin = { amount: 1100000, title: '住民税がかかり始める', who: '本人',
+    desc: '年収がおよそ110万円を超えると、本人に住民税がかかり始めます（お住まいの市区町村で少し前後します）。超えても年に数千円〜数万円程度で、翌年の6月ごろから払います。' };
+  var shotoku = { amount: taxLine, title: '本人に所得税がかかり始める', who: '本人',
+    desc: (old ? '2025年分は160万円。' : '2026年分から178万円に引き上げられました。') +
+      '毎月の給料から引かれた所得税は、年末調整で戻ってくることが多いです。' };
+  var walls;
+  if (role === '配偶者') {
+    walls = [
+      juumin,
+      { amount: 1300000, title: '夫の扶養（健康保険・年金）から外れる', who: '本人',
+        desc: 'いちばん影響が大きい壁です。超えると自分で健康保険・年金に入ることになり、年に約20〜30万円の負担が増えて手取りが減ります（手取りが戻るのはおよそ160万円以上）。一時的に超えたときは、勤務先に証明を出してもらえば扶養のままでいられる場合があります。' },
+      { amount: depLine, title: '夫の「配偶者控除」→「配偶者特別控除」に切り替わる', who: '夫',
+        desc: (old ? '2025年分は123万円。' : '') + 'ここを超えても、夫の税金の控除は' + (old ? '160' : '169') + '万円までは満額（38万円）のままなので、夫の税金はほぼ変わりません。※夫の会社の「家族手当・配偶者手当」は会社ごとに条件（103万円・130万円など）があるので確認してください。' },
+      { amount: old ? 1600000 : 1690000, title: '夫の配偶者特別控除が減り始める', who: '夫',
+        desc: 'これを超えると夫の税金の控除が少しずつ減り、' + (old ? '201' : '207') + '万円でゼロになります。夫の税金が少し増えます。' },
+      shotoku
+    ];
+  } else if (role === '学生') {
+    walls = [
+      juumin,
+      { amount: depLine, title: '親の扶養控除が「特定親族特別控除」に切り替わる', who: '親',
+        desc: '19〜22歳なら、超えても150万円くらいまでは親の税金の控除は満額のまま。それを超えると少しずつ減ります。' },
+      { amount: 1500000, title: '親の健康保険の扶養から外れる（19〜22歳）', who: '本人',
+        desc: '19〜22歳はこのラインが150万円です（それ以外の年齢は130万円）。超えると自分で国民健康保険・国民年金に入る必要があります。' },
+      shotoku
+    ];
+  } else {
+    walls = [
+      juumin,
+      { amount: 1300000, title: '家族の健康保険の扶養から外れる', who: '本人',
+        desc: '家族の扶養に入っている場合、超えると自分で健康保険・年金に入る必要があり、年に約20〜30万円の負担になります。' },
+      { amount: depLine, title: '家族の扶養控除の対象外になる', who: '家族',
+        desc: '家族が税金の「扶養控除」を受けられなくなり、家族の税金が増えます。' },
+      shotoku
+    ];
+  }
+  walls.sort(function (a, b) { return a.amount - b.amount; });
   walls.forEach(function (w) {
     w.actualRate = Math.min(1.5, actual / w.amount);
     w.projRate = Math.min(1.5, projection / w.amount);
     w.status = actual > w.amount ? '超えた' : projection > w.amount ? '超えそう' : projection > w.amount * 0.9 ? '注意' : '余裕';
   });
-  return {
-    list: walls,
-    weekly: {
-      title: '週20時間の壁（社会保険・雇用保険）',
-      desc: student
-        ? '昼間の学生は、週20時間以上でも勤務先の社会保険（厚生年金・健康保険）と雇用保険には原則入りません。ただし留学生の場合は「週28時間以内」の別ルールがあります。'
-        : '契約上の勤務時間が週20時間以上になると、勤務先によっては社会保険（厚生年金・健康保険）や雇用保険に入ることになり、給料から保険料が引かれます。2026年10月から「月8.8万円（106万円の壁）」の条件はなくなり、時間で判断されます。'
-    }
-  };
+  var weeklyDesc = role === '学生'
+    ? '昼間の学生は、週20時間以上でも勤務先の社会保険（厚生年金・健康保険）と雇用保険には原則入りません。'
+    : '契約上の勤務時間が週20時間以上になると、勤務先の社会保険（厚生年金・健康保険）に入る場合があります（勤務先の従業員が51人以上など）。2026年10月から「月8.8万円（106万円の壁）」の条件はなくなり、年収に関係なく時間で決まります。入ると年収130万円より前でも夫の扶養から外れ、給料から保険料が引かれます（そのぶん将来の年金は増えます）。雇用保険も週20時間以上が加入の目安です。';
+  return { list: walls, weekly: { title: '週20時間の壁（社会保険・雇用保険）', desc: weeklyDesc } };
 }
 
 function mailTo_(s) {
