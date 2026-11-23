@@ -16,6 +16,7 @@ create table if not exists public.flash_profiles (
   id bigint generated always as identity primary key,
   name text not null,
   emoji text not null default '',
+  avatar text not null default '',
   sort int not null default 0,
   created_at timestamptz not null default now()
 );

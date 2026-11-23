@@ -274,7 +274,7 @@ async function goTop(){
   try{ const r=await api('overview'); S.profiles=r.profiles }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
   setView(`<h2>だれが使う？</h2><div class="pick">${S.profiles.map(p=>`
     <button class="person" onclick="enterProfile(${p.id})">
-      <span class="face">${esc(p.emoji||'🙂')}</span>
+      <span class="face">${avatarHtml(p,64)}</span>
       <span class="grow"><span class="nm">${esc(p.name)}</span><br>
         <span class="sub">教材 ${p.deck_count}つ ・ カード ${p.card_count}枚 ・ 覚えた ${p.mastered}枚</span><br>
         ${p.due?`<span class="chip rev">今日の復習 ${p.due}枚</span>`:`<span class="chip ok">復習なし</span>`}
@@ -286,7 +286,7 @@ function enterProfile(id){
   S.profile=S.profiles.find(p=>p.id===id); if(!S.profile) return goTop();
   S.folder=[];
   lsSet('flash_profile',String(id));
-  $('#hWho').textContent=`${S.profile.emoji||'🙂'} ${S.profile.name} ▾`; $('#hWho').classList.remove('hidden');
+  $('#hWho').innerHTML=`${avatarHtml(S.profile,22)} ${esc(S.profile.name)} ▾`; $('#hWho').classList.remove('hidden');
   $('#hTitle').textContent='⚡ フラッシュ暗記';
   $('#tabs').classList.remove('hidden');
   showTab('decks');
@@ -1184,12 +1184,46 @@ async function syncJobs(){
 setInterval(()=>{if(S.jobs.some(j=>j.serverId&&!['done','error'].includes(j.step)))syncJobs()},5000);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncJobs()});
 
+// ------------------------------------------------------------ アイコン (絵文字 or 小さく縮めた写真)
+const AVATAR_EMOJIS=['👦','👧','🧒','👨','👩','🧑','👴','👵','🐶','🐱','🐰','🐻','🐼','🦊','🐯','🦁','🐸','🐧','🦄','🐢','⚽','⚾','🏀','🎾','🎹','🎸','🎨','📚','🚀','🌸','🌻','⭐','🍙','🍓','🎮','🤖'];
+function avatarHtml(p,size){
+  if(p&&p.avatar) return `<img src="${p.avatar}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;vertical-align:middle">`;
+  return `<span style="font-size:${Math.round(size*0.8)}px;line-height:1;vertical-align:middle">${esc((p&&p.emoji)||'🙂')}</span>`;
+}
+function openAvatarPicker(id){
+  const p=S.profiles.find(x=>x.id===id);
+  modal(`<h3>${esc(p.name)} のアイコン</h3>
+    <div class="center" style="margin:6px 0 12px">${avatarHtml(p,80)}</div>
+    <label class="btn navy block center">📷 写真から選ぶ<input type="file" accept="image/*" class="hidden" onchange="avatarFromPhoto(${id},this.files[0])"></label>
+    <p class="muted small center" style="margin:6px 0 0">写真は真ん中を丸く切り取り、小さく縮めて保存します（とても軽いです）。</p>
+    <label class="f">絵文字から選ぶ</label>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px">${AVATAR_EMOJIS.map(e=>`<button class="btn ghost" style="font-size:26px;padding:6px" onclick="saveAvatar(${id},'${e}','')">${e}</button>`).join('')}</div>
+    <button class="btn block" style="margin-top:14px" onclick="closeModal()">閉じる</button>`);
+}
+async function avatarFromPhoto(id,file){
+  if(!file) return;
+  try{
+    const url=URL.createObjectURL(file); const im=await loadImage(url); URL.revokeObjectURL(url);
+    const side=Math.min(im.naturalWidth,im.naturalHeight), c=document.createElement('canvas'); c.width=c.height=160;
+    c.getContext('2d').drawImage(im,(im.naturalWidth-side)/2,(im.naturalHeight-side)/2,side,side,0,0,160,160);
+    const data=c.toDataURL('image/jpeg',0.8);
+    const p=S.profiles.find(x=>x.id===id); await saveAvatar(id,p.emoji||'🙂',data);
+  }catch(e){toast('写真を読み込めませんでした')}
+}
+async function saveAvatar(id,emoji,avatar){
+  try{ await api('update_profile',{profile_id:id,emoji,avatar});
+    const r=await api('overview'); S.profiles=r.profiles; const me=S.profile&&S.profiles.find(p=>p.id===S.profile.id);
+    if(me){S.profile=me;$('#hWho').innerHTML=`${avatarHtml(me,22)} ${esc(me.name)} ▾`}
+    closeModal(); toast('アイコンを変えました'); if(S.tab==='settings') renderSettings();
+  }catch(e){toast(e.message)}
+}
+
 // ------------------------------------------------------------ 設定
 async function renderSettings(){
   setView(`<h2>⚙️ 設定</h2>
     <div class="card"><h3>使う人</h3>
       ${S.profiles.map(p=>`<div class="row" style="margin-bottom:8px">
-        <input class="t" style="width:64px;text-align:center" id="pe${p.id}" value="${esc(p.emoji)}">
+        <button class="btn ghost" style="padding:4px;width:56px;height:56px;display:flex;align-items:center;justify-content:center" title="アイコンを変える" onclick="openAvatarPicker(${p.id})">${avatarHtml(p,44)}</button>
         <input class="t grow" id="pn${p.id}" value="${esc(p.name)}">
         <button class="btn sm" onclick="saveProfile(${p.id})">保存</button></div>`).join('')}
       <div class="row" style="margin-top:12px"><input class="t" style="width:64px;text-align:center" id="newE" value="🙂"><input class="t grow" id="newN" placeholder="追加する人の名前"><button class="btn sm" onclick="addProfile()">追加</button></div>
@@ -1202,8 +1236,8 @@ async function renderSettings(){
       <button class="btn ghost block" style="margin-top:8px" onclick="logout()">ログアウト</button></div>`);
 }
 async function saveProfile(id){
-  try{ await api('update_profile',{profile_id:id,name:$('#pn'+id).value,emoji:$('#pe'+id).value});
-    const r=await api('overview'); S.profiles=r.profiles; const me=S.profiles.find(p=>p.id===S.profile.id); if(me){S.profile=me;$('#hWho').textContent=`${me.emoji||'🙂'} ${me.name} ▾`}
+  try{ await api('update_profile',{profile_id:id,name:$('#pn'+id).value});
+    const r=await api('overview'); S.profiles=r.profiles; const me=S.profiles.find(p=>p.id===S.profile.id); if(me){S.profile=me;$('#hWho').innerHTML=`${avatarHtml(me,22)} ${esc(me.name)} ▾`}
     toast('保存しました') }catch(e){toast(e.message)}
 }
 async function addProfile(){

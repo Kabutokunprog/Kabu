@@ -1073,6 +1073,11 @@ def handle(action, body, passcode):
         data = {k: str(body[k]).strip() for k in ("name", "emoji") if k in body}
         if "name" in data and not data["name"]:
             raise ApiError("名前を入れてください")
+        if "avatar" in body:
+            av = str(body.get("avatar") or "")
+            if av and (not re.match(r"^data:image/(jpeg|png|webp);base64,", av) or len(av) > 80_000):
+                raise ApiError("アイコンの画像が大きすぎるか、形式が違います")
+            data["avatar"] = av
         s.update_profile(body["profile_id"], data)
         return {"ok": True}
 
