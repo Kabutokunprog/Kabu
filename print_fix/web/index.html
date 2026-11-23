@@ -177,38 +177,73 @@ function rankFilter(src, w, h, r, isMax){
   pass(src,tmp,w,h,w,1); pass(tmp,out,h,w,1,w);
   return out;
 }
-// 「まわりの紙の明るさ」: 細い線(文字)を消した画像。
-// 太さ約1.6mmより細い暗い所は消え、原子の玉や塗りの図のような大きい所は残る。
+const mm = (v, dpi) => Math.max(2, Math.round(v/25.4*dpi));   // ミリ → ドット数
+function ss(x, e0, e1){ let t=(x-e0)/(e1-e0); t=t<0?0:t>1?1:t; return t*t*(3-2*t); }
+// 「まわりの紙(マス)の明るさ」。0.4mm角ごとの平均を使うので、
+// 表のマスに散らばる白い点々(光の反射)にはだまされにくい。
 function backgroundMap(L, w, h, dpi){
-  const r = Math.max(3, Math.round(0.8/25.4*dpi));
-  return rankFilter(rankFilter(L, w, h, r, true), w, h, r, false);
+  const b = mm(0.4, dpi), sw=Math.ceil(w/b), sh=Math.ceil(h/b);
+  const sum = new Float32Array(sw*sh), cnt = new Uint32Array(sw*sh);
+  for (let y=0;y<h;y++){ const sy=(y/b)|0, o=y*w;
+    for (let x=0;x<w;x++){ const k=sy*sw+((x/b)|0); sum[k]+=L[o+x]; cnt[k]++; } }
+  let small = new Uint8ClampedArray(sw*sh);
+  for (let k=0;k<sw*sh;k++) small[k]=sum[k]/cnt[k];
+  small = rankFilter(rankFilter(small, sw, sh, 2, true), sw, sh, 2, false);
+  const bg = new Uint8ClampedArray(w*h);
+  for (let y=0;y<h;y++){ let fy=(y+0.5)/b-0.5; if(fy<0)fy=0; const y0=Math.min(sh-1,fy|0), y1=Math.min(sh-1,y0+1), ty=fy-y0;
+    for (let x=0;x<w;x++){ let fx=(x+0.5)/b-0.5; if(fx<0)fx=0; const x0=Math.min(sw-1,fx|0), x1=Math.min(sw-1,x0+1), tx=fx-x0;
+      const a=small[y0*sw+x0]*(1-tx)+small[y0*sw+x1]*tx, c=small[y1*sw+x0]*(1-tx)+small[y1*sw+x1]*tx;
+      const v=a*(1-ty)+c*ty, i=y*w+x; bg[i]= v>L[i] ? v : L[i]; } }
+  return bg;
+}
+// 半径 r の範囲の平均(すばやく計算するための合計表を使う)
+function boxMean(L, w, h, r){
+  const W=w+1, S=new Uint32Array(W*(h+1));
+  for (let y=0;y<h;y++){ let row=0; for (let x=0;x<w;x++){ row+=L[y*w+x]; S[(y+1)*W+x+1]=S[y*W+x+1]+row; } }
+  const out=new Uint8ClampedArray(w*h);
+  for (let y=0;y<h;y++){ const y0=Math.max(0,y-r), y1=Math.min(h,y+r+1);
+    for (let x=0;x<w;x++){ const x0=Math.max(0,x-r), x1=Math.min(w,x+r+1);
+      out[y*w+x]=(S[y1*W+x1]-S[y0*W+x1]-S[y1*W+x0]+S[y0*W+x0])/((y1-y0)*(x1-x0)); } }
+  return out;
 }
 // dpi: この画像が印刷される細かさ(線の太さをミリで考えるため)
+// 「文字の線」と判断する条件(すべてそろった所だけを黒くする):
+//  ・マスや紙の色よりはっきり暗い
+//  ・近くの一番濃い線と同じくらい濃い(線と線のすき間は除く)
+//  ・細い(0.7mm未満)。灰色のマスの縁や大きな塗りは除く
+//  ・近く(1mm四方)の平均よりも暗い。点々の多いマスの地の色は除く
 function enhance(img, dpi, bold, colorMode){
   const {width:w, height:h, data} = img, N=w*h;
   const L = luminance(data, N);
   const bg = backgroundMap(L, w, h, dpi);
-  const nl = new Uint8ClampedArray(N), T = new Float32Array(N);
-  const D0=35, D1=110;
+  const rs = mm(0.35, dpi), cs = rankFilter(rankFilter(L, w, h, rs, true), w, h, rs, false);
+  const lmin = rankFilter(L, w, h, mm(0.25, dpi), false);
+  const mean = boxMean(L, w, h, mm(0.5, dpi));
+  const nl = new Uint8ClampedArray(N), T = new Float32Array(N), P = new Float32Array(N);
   for (let i=0;i<N;i++){
-    const d = bg[i]-L[i];
-    let t = (d-D0)/(D1-D0); t = t<0?0:t>1?1:t; t = t*t*(3-2*t);
-    T[i]=t; nl[i] = L[i]*(1-0.85*t);           // まわりより暗い所だけ、黒へ寄せる
+    const l=L[i], b=bg[i], d=b-l, rng=Math.max(b-lmin[i],1), p=d/rng;
+    const t = ss(p,0.45,0.70)*ss(rng,35,70)*ss(d,20,45)*ss(cs[i]-l,20,45)*ss(mean[i]-l,20,40);
+    let v = l*(1-0.85*t);                                      // 線は黒へ寄せる
+    const g = ss(-p,-0.38,-0.15)*ss(rng,80,130)*ss(b,200,230)*0.7; // 線のすき間は紙の色へ
+    v += (b-v)*g;
+    T[i]=t; P[i]=p; nl[i]=v;
   }
   if (bold>0){
     const r = Math.max(1, Math.round(bold*dpi/600));
     const thick = rankFilter(nl, w, h, r, false);
     const m0 = new Uint8ClampedArray(N); for (let i=0;i<N;i++) m0[i] = T[i]>0.5 ? 255 : 0;
     const mask = rankFilter(m0, w, h, r, true);
-    for (let i=0;i<N;i++) if (mask[i]){ const v=0.6*thick[i]+0.4*nl[i]; if (v<nl[i]) nl[i]=v; }
+    // すき間(P が小さい所)は太らせない → 画数の多い漢字が潰れない
+    for (let i=0;i<N;i++) if (mask[i] && P[i]>0.3){ const v=0.6*thick[i]+0.4*nl[i]; if (v<nl[i]) nl[i]=v; }
   }
   for (let i=0,j=0;i<N;i++,j+=4){
     const r=data[j], g=data[j+1], b=data[j+2], l=L[i], n=nl[i];
     if (colorMode==="black"){
-      const wt = Math.min(1, T[i]*1.5);
-      data[j]  =Math.min(r, r*(1-wt)+n*wt);
-      data[j+1]=Math.min(g, g*(1-wt)+n*wt);
-      data[j+2]=Math.min(b, b*(1-wt)+n*wt);
+      // 明るさの変化はそのまま色にも反映し、線と判断した所はグレー(黒)に寄せる
+      const k = l>1 ? n/l : 1, wt = Math.min(1, T[i]*1.5);
+      data[j]  =r*k*(1-wt)+n*wt;
+      data[j+1]=g*k*(1-wt)+n*wt;
+      data[j+2]=b*k*(1-wt)+n*wt;
     } else {
       const sat = Math.max(r,g,b)-Math.min(r,g,b);
       let c = (sat-40)/40; c = c<0?0:c>1?1:c;
