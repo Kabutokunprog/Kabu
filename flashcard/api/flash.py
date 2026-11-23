@@ -53,11 +53,21 @@ def iso(dt):
     return dt.isoformat() if dt else None
 
 
+def clean_year(v):
+    """西暦の目安 (時系列の並べ替え用)。なし/0 は None。"""
+    try:
+        y = int(v)
+    except (TypeError, ValueError):
+        return None
+    return y if y and -10000 < y < 3000 else None
+
+
 def clean_card(c):
     out = {}
     for k in CARD_FIELDS:
         v = c.get(k)
         out[k] = str(v).strip() if v is not None else ""
+    out["year"] = clean_year(c.get("year"))
     return out
 
 
@@ -433,12 +443,14 @@ def build_generate_prompt(o):
         "- note: 覚え方のコツ・関連事項・読みがななどの一言解説(なければ空)。",
         "- example: 単語型なら教材の例文と訳(「例文（出典）→訳：…」の形)。それ以外は空でよい。",
         "- tag: 小さなラベル。歴史なら時代や年(例:「1716年 享保」)、単語型なら品詞(例:「形・ク」)、それ以外は単元名など短く。",
+        "- year: 歴史のカードは、その出来事・人物が活躍した西暦の目安を整数で(例: 1603。文化や時代全体なら中ごろの年。紀元前はマイナス)。後で時系列に並べ替えるのに使う。歴史以外は 0。",
         "- 内容は教材にあることを中心に。教材の誤字や手書きの書き込みは正しい内容に直してよい。",
         "- 同じ問いを重複させない。",
         "",
         "## 並べ方",
-        "- 歴史(日本史・世界史・歴史的分野)は、古い出来事から新しい出来事へ時代順(時系列)に並べる。プリントの順番より時代順を優先する。",
-        "- それ以外は教材の順番どおり(プリント番号・ページ・問題番号の順)。",
+        "- 必ず教材の順番どおりに並べる(教科書・プリントの順に覚えたいので、並べ替えない)。",
+        "- プリントに番号(③④・No.11 など)やページ番号があるときは、その番号の順。写真の順番が番号とずれていても番号を優先する。同じプリントの中は問題番号・上から下(縦書きは右から左)の順。",
+        "- 時系列での出題は year を使ってアプリ側で並べ替えるので、ここでは時代順にしない。",
     ]
     if o.get("style") == "predict" or (o.get("style") == "auto"):
         if o.get("include_written"):
@@ -466,8 +478,8 @@ def build_generate_prompt(o):
 
 CARD_SCHEMA = {
     "type": "object",
-    "properties": {k: {"type": "string"} for k in CARD_FIELDS},
-    "required": list(CARD_FIELDS),
+    "properties": {**{k: {"type": "string"} for k in CARD_FIELDS}, "year": {"type": "integer"}},
+    "required": [*CARD_FIELDS, "year"],
     "additionalProperties": False,
 }
 GENERATE_SCHEMA = {
@@ -484,8 +496,8 @@ REGEN_SCHEMA = {
     "type": "object",
     "properties": {"cards": {"type": "array", "items": {
         "type": "object",
-        "properties": {"id": {"type": "integer"}, **{k: {"type": "string"} for k in CARD_FIELDS}},
-        "required": ["id", *CARD_FIELDS],
+        "properties": {"id": {"type": "integer"}, **{k: {"type": "string"} for k in CARD_FIELDS}, "year": {"type": "integer"}},
+        "required": ["id", *CARD_FIELDS, "year"],
         "additionalProperties": False}}},
     "required": ["cards"],
     "additionalProperties": False,
@@ -563,9 +575,9 @@ def ai_transcribe(images, page_offset, model=None):
 def ai_generate(opts):
     if MOCK:
         cards = [
-            {"question": "江戸幕府を開いた人物は誰か。", "answer": "徳川家康", "note": "とくがわいえやす", "example": "", "tag": "1603年"},
-            {"question": "8代将軍徳川吉宗が行った改革を何というか。", "answer": "享保の改革", "note": "きょうほう", "example": "", "tag": "1716年"},
-            {"question": "老中松平定信による改革を何というか。", "answer": "寛政の改革", "note": "かんせい", "example": "", "tag": "1787年"},
+            {"question": "江戸幕府を開いた人物は誰か。", "answer": "徳川家康", "note": "とくがわいえやす", "example": "", "tag": "1603年", "year": 1603},
+            {"question": "8代将軍徳川吉宗が行った改革を何というか。", "answer": "享保の改革", "note": "きょうほう", "example": "", "tag": "1716年", "year": 1716},
+            {"question": "老中松平定信による改革を何というか。", "answer": "寛政の改革", "note": "かんせい", "example": "", "tag": "1787年", "year": 1787},
         ]
         return {"title": "お試し教材", "card_kind": "qa", "cards": cards}
     text = claude_call(build_generate_prompt(opts), "medium", schema=GENERATE_SCHEMA, max_tokens=64000,
@@ -577,6 +589,34 @@ def ai_generate(opts):
     return data
 
 
+REORDER_SCHEMA = {
+    "type": "object",
+    "properties": {"cards": {"type": "array", "items": {
+        "type": "object", "properties": {"id": {"type": "integer"}, "year": {"type": "integer"}},
+        "required": ["id", "year"], "additionalProperties": False}}},
+    "required": ["cards"], "additionalProperties": False,
+}
+
+
+def ai_reorder(deck, cards, model=None):
+    """カードを教材(プリント)の順番に並べ直し、歴史なら西暦の目安を付ける。"""
+    if MOCK:
+        return [{"id": c["id"], "year": 1600 + i} for i, c in enumerate(reversed(cards))]
+    prompt = "\n".join([
+        "下のフラッシュカードを、教材(教科書・プリント)に出てくる順番に並べ直してください。",
+        "- プリントに番号(③④・No.11 など)やページがあれば、その番号の順。同じプリントの中は問題番号・上から下の順。",
+        "- 教材の内容(書き起こし)を見て順番を決める。教材に見当たらないカードは、近い内容のカードの後ろに置く。",
+        "- 各カードに year を付ける: 歴史なら出来事・人物の西暦の目安(整数。紀元前はマイナス)。歴史でなければ 0。",
+        "- すべてのカードの id を1回ずつ返す。",
+        f"科目: {deck.get('subject') or '不明'}",
+        "", "## カード", json.dumps([{"id": c["id"], "question": c["question"], "answer": c["answer"], "tag": c.get("tag", "")}
+                                     for c in cards], ensure_ascii=False),
+        "", "## 教材の内容", "<material>", deck.get("source_text") or "(記録なし)", "</material>",
+    ])
+    data = json.loads(claude_call(prompt, "low", schema=REORDER_SCHEMA, max_tokens=16000, model=model))
+    return data.get("cards", [])
+
+
 def ai_regenerate(deck, targets, others, instructions):
     if MOCK:
         return [dict(id=c["id"], question=c["question"] + "(作り直し)", answer=c["answer"], note=c.get("note", ""),
@@ -586,7 +626,7 @@ def ai_regenerate(deck, targets, others, instructions):
         f"教材「{deck.get('title')}」(学年: {deck.get('grade') or '不明'} / 科目: {deck.get('subject') or '不明'}) のフラッシュカードのうち、",
         "「作り直してほしい」と印がついたカードを、より良い問題に作り直してください。",
         "",
-        "- 同じ id のまま、question / answer / note / example / tag をすべて書き直して返す。",
+        "- 同じ id のまま、question / answer / note / example / tag / year をすべて書き直して返す(year は歴史なら西暦の目安、それ以外は 0)。",
         "- 答えが1つに決まり、問題文だけで何を聞かれているか分かるようにする。問題文に答えを書かない。",
         "- 教材の内容の範囲で作る。ほかのカードと同じ問いにならないようにする。",
         "- 単語型(card_kind=word)なら question=見出し語、answer=意味 の形を守る。",
@@ -788,6 +828,8 @@ def handle(action, body, passcode):
 
     if action == "update_card":
         data = {k: str(body[k]).strip() for k in CARD_FIELDS if k in body}
+        if "year" in body:
+            data["year"] = clean_year(body["year"])
         if "needs_regen" in body:
             data["needs_regen"] = bool(body["needs_regen"])
         s.update_card(body["card_id"], data)
@@ -802,6 +844,23 @@ def handle(action, body, passcode):
     if action == "delete_cards":
         s.delete_cards(body.get("card_ids") or [])
         return {"ok": True}
+
+    if action == "reorder":
+        deck, cards = s.get_deck(body["deck_id"])
+        if not cards:
+            return {"updated": 0}
+        res = ai_reorder(deck, cards, pick_model(body.get("model") or "sonnet"))
+        ids = {c["id"] for c in cards}
+        seen, order = set(), []
+        for r in res:
+            cid = int(r.get("id", -1))
+            if cid in ids and cid not in seen:
+                seen.add(cid)
+                order.append((cid, clean_year(r.get("year"))))
+        order += [(c["id"], c.get("year")) for c in cards if c["id"] not in seen]  # 返ってこなかった分は最後に
+        for pos, (cid, year) in enumerate(order):
+            s.update_card(cid, {"position": pos, "year": year})
+        return {"updated": len(order)}
 
     if action == "regenerate":
         deck, cards = s.get_deck(body["deck_id"])
