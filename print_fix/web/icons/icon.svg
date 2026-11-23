@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#138aa8"/><stop offset="1" stop-color="#0a5870"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f6f8"/><stop offset="1" stop-color="#c9d1d9"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- 用紙(プリンタから出てくる) -->
+  <rect x="112" y="58" width="288" height="250" rx="10" fill="#ffffff"/>
+  <!-- うすい文字 → 太い文字 -->
+  <text x="178" y="222" font-family="IPAGothic" font-size="128" text-anchor="middle" fill="#b9c2cb">あ</text>
+  <path d="M232 180 L262 180" stroke="#0b6e8a" stroke-width="12" stroke-linecap="round"/>
+  <path d="M256 162 L280 180 L256 198 Z" fill="#0b6e8a"/>
+  <text x="338" y="222" font-family="IPAGothic" font-size="128" text-anchor="middle" fill="#111" stroke="#111" stroke-width="11" stroke-linejoin="round" paint-order="stroke">あ</text>
+  <!-- プリンタ本体 -->
+  <rect x="56" y="262" width="400" height="170" rx="30" fill="url(#body)"/>
+  <rect x="100" y="290" width="312" height="22" rx="11" fill="#2b3640"/>
+  <rect x="112" y="300" width="288" height="96" fill="#ffffff"/>
+  <rect x="140" y="326" width="232" height="14" rx="7" fill="#111"/>
+  <rect x="140" y="356" width="170" height="14" rx="7" fill="#111"/>
+  <circle cx="412" cy="404" r="11" fill="#2fbf71"/>
+</svg>

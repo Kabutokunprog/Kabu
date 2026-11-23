@@ -3,7 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>くっきり印刷</title>
+<title>クッキリ印刷</title>
+<meta name="apple-mobile-web-app-title" content="クッキリ印刷">
+<meta name="application-name" content="クッキリ印刷">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b6e8a">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
 <style>
 /* レイアウト: 上から「1 開く → 2 解析 → 3 印刷設定 → 4 印刷」の順に並ぶ一列の作業台 */
 :root{
@@ -64,7 +71,7 @@ ol.tips{margin:0;padding-left:1.3em}
 <body>
 <div class="wrap">
   <header>
-    <h1>くっきり印刷</h1>
+    <h1>クッキリ印刷</h1>
     <p class="lead">スキャンしたPDFの文字だけを濃く・少し太くして、レーザープリンタでかすれにくくします。2ページをA4の1枚にまとめる「2アップ」にもできます。PDFはこの端末の中だけで処理され、どこにも送られません。</p>
   </header>
 
@@ -423,7 +430,7 @@ async function makePdf(){
     S.outUrl=URL.createObjectURL(new Blob([bytes],{type:"application/pdf"}));
     const sheets=Math.ceil(use.length/L.slots.length);
     $("mkinfo").textContent=`できました:A4 ${sheets}枚(${(bytes.length/1048576).toFixed(1)}MB)`;
-    $("save").href=S.outUrl; $("save").download=`${S.name}_くっきり${L.two?"_2アップ":""}.pdf`;
+    $("save").href=S.outUrl; $("save").download=`${S.name}_クッキリ${L.two?"_2アップ":""}.pdf`;
     $("openTab").href=S.outUrl;
     $("outBtns").hidden=false;
   }catch(e){
