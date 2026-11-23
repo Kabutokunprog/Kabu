@@ -78,6 +78,11 @@ textarea.t{min-height:84px;resize:vertical}
 .person .sub{color:var(--muted);font-size:14px}
 /* 教材一覧 */
 .deck{display:block;width:100%;text-align:left;border:0;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px}
+.folder{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:0;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px}
+.folder .fi{font-size:30px;line-height:1}
+.folder b{font-size:17px}
+.crumbs{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:0 0 10px}
+.crumb{border:0;background:var(--chip);border-radius:999px;padding:5px 12px;font-size:14px;font-weight:700;color:var(--navy)}
 .deck .tt{font-weight:700;font-size:17px;margin:4px 0}
 .bar{height:6px;background:var(--chip);border-radius:3px;overflow:hidden;margin-top:8px}
 .bar i{display:block;height:100%;background:var(--ok)}
@@ -184,7 +189,7 @@ const API = '/api/flash';
 const S = {
   pass: lsGet('flash_pass') || '',
   profile: null, profiles: [],
-  tab: 'decks', decks: [], deckFilter: {grade:'',term:'',subject:''},
+  tab: 'decks', decks: [], folder: [], deckView: 'folder',
   deck: null, cards: [], checked: new Set(), hideAns: false,
   review: [],
   make: null,
@@ -271,6 +276,7 @@ async function goTop(){
 }
 function enterProfile(id){
   S.profile=S.profiles.find(p=>p.id===id); if(!S.profile) return goTop();
+  S.folder=[];
   lsSet('flash_profile',String(id));
   $('#hWho').textContent=`${S.profile.emoji||'🙂'} ${S.profile.name} ▾`; $('#hWho').classList.remove('hidden');
   $('#hTitle').textContent='⚡ フラッシュ暗記';
@@ -297,37 +303,70 @@ async function renderDecks(){
   refreshBadge();
   drawDecks();
 }
+// 教材一覧: 学年 → テスト(学期) → 科目 のフォルダで見る / 新しい順に全部見る
+const LEVELS=[['grade','学年'],['term','テスト'],['subject','科目']];
+const UNSET='未設定';
+function deckCardHtml(d,newestId,showPath){
+  const st=d.stats, pct=d.card_count?Math.round(st.mastered/d.card_count*100):0;
+  const isNew=d.id===newestId||daysAgo(d.created_at)<3;
+  return `<button class="deck" onclick="openDeck(${d.id})">
+    <div class="chips">${isNew?'<span class="chip new">NEW</span>':''}
+      ${showPath?`${d.grade?`<span class="chip">${esc(d.grade)}</span>`:''}${d.term?`<span class="chip">${esc(d.term)}</span>`:''}${d.subject?`<span class="chip">${esc(d.subject)}</span>`:''}`:''}
+      ${st.in_review?`<span class="chip rev">復習 ${st.in_review}</span>`:''}</div>
+    <div class="tt">${esc(d.title)}</div>
+    <div class="muted small">${d.card_kind==='word'?'単語型':'問題型'} ・ カード ${d.card_count}枚 ・ 覚えた ${st.mastered}枚 ・ ${fmtDate(d.created_at)}</div>
+    <div class="bar"><i style="width:${pct}%"></i></div>
+  </button>`;
+}
+function openFolder(i){S.folder=S.folder.slice(0,i);drawDecks()}
+function enterFolder(name){S.folder.push(name);drawDecks()}
 function drawDecks(){
-  const f=S.deckFilter, D=S.decks;
-  const uniq=k=>[...new Set(D.map(d=>d[k]).filter(Boolean))];
-  const list=D.filter(d=>(!f.grade||d.grade===f.grade)&&(!f.term||d.term===f.term)&&(!f.subject||d.subject===f.subject));
+  const D=S.decks; S.folder=S.folder||[]; S.deckView=S.deckView||'folder';
   const cards=D.reduce((s,d)=>s+d.card_count,0), mastered=D.reduce((s,d)=>s+d.stats.mastered,0);
   const newestId=D.length?D[0].id:null;
+  let body='';
+  if(!D.length){
+    body=`<div class="card center"><p>まだ教材がありません。</p><button class="btn primary" onclick="showTab('make')">✨ 最初の教材を作る</button></div>`;
+  }else if(S.deckView==='new'){
+    body=D.map(d=>deckCardHtml(d,newestId,true)).join('');
+  }else{
+    // 今いるフォルダの中の教材
+    const val=(d,k)=>d[k]||UNSET;
+    const inHere=D.filter(d=>S.folder.every((name,i)=>val(d,LEVELS[i][0])===name));
+    if(!inHere.length&&S.folder.length){S.folder=[];return drawDecks()}
+    const crumbs=[`<button class="crumb" onclick="openFolder(0)">📚 すべて</button>`,
+      ...S.folder.map((n,i)=>`<span class="muted">›</span><button class="crumb" onclick="openFolder(${i+1})">${esc(n)}</button>`)].join('');
+    body=`<div class="crumbs">${crumbs}</div>`;
+    if(S.folder.length<LEVELS.length){
+      const key=LEVELS[S.folder.length][0];
+      // フォルダは「中の一番新しい教材」が新しい順に並べる (新しいものが一番上)
+      const groups=new Map();
+      for(const d of inHere){const k=val(d,key);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(d)}
+      if(S.folder.length===0){
+        const latest=D.slice(0,2);
+        body=`<h3 style="margin:4px 0 8px">🆕 新しい教材</h3>${latest.map(d=>deckCardHtml(d,newestId,true)).join('')}<h3 style="margin:18px 0 8px">📂 フォルダ</h3>`+body;
+      }
+      body+=[...groups.entries()].map(([name,list])=>{
+        const c=list.reduce((s,d)=>s+d.card_count,0), m=list.reduce((s,d)=>s+d.stats.mastered,0), rv=list.reduce((s,d)=>s+d.stats.in_review,0);
+        const hasNew=list.some(d=>d.id===newestId||daysAgo(d.created_at)<3);
+        return `<button class="folder" onclick="enterFolder(${esc(JSON.stringify(name))})">
+          <span class="fi">📁</span><span class="grow"><b>${esc(name)}</b> ${hasNew?'<span class="chip new">NEW</span>':''}<br>
+          <span class="muted small">教材 ${list.length}つ ・ カード ${c}枚 ・ 覚えた ${m}枚${rv?` ・ <span style="color:var(--ng)">復習 ${rv}</span>`:''}</span></span>
+          <span class="muted" style="font-size:22px">›</span></button>`}).join('');
+    }else{
+      body+=inHere.map(d=>deckCardHtml(d,newestId,false)).join('');
+    }
+  }
   setView(`
     <div class="stats">
       <div class="stat"><b>${D.length}</b><span>教材</span></div>
       <div class="stat"><b>${cards}</b><span>できたカード</span></div>
       <div class="stat"><b>${mastered}</b><span>覚えたカード</span></div>
     </div>
-    ${D.length?`<div class="grid3" style="margin-bottom:12px">
-      <select class="t" onchange="S.deckFilter.grade=this.value;drawDecks()">${opts(uniq('grade'),f.grade,'学年: すべて')}</select>
-      <select class="t" onchange="S.deckFilter.term=this.value;drawDecks()">${opts(uniq('term'),f.term,'テスト: すべて')}</select>
-      <select class="t" onchange="S.deckFilter.subject=this.value;drawDecks()">${opts(uniq('subject'),f.subject,'科目: すべて')}</select>
-    </div>`:''}
-    ${list.map(d=>{
-      const st=d.stats, pct=d.card_count?Math.round(st.mastered/d.card_count*100):0;
-      const isNew=d.id===newestId||daysAgo(d.created_at)<3;
-      return `<button class="deck" onclick="openDeck(${d.id})">
-        <div class="chips">${isNew?'<span class="chip new">NEW</span>':''}
-          ${d.subject?`<span class="chip">${esc(d.subject)}</span>`:''}${d.grade?`<span class="chip">${esc(d.grade)}</span>`:''}${d.term?`<span class="chip">${esc(d.term)}</span>`:''}
-          ${st.in_review?`<span class="chip rev">復習 ${st.in_review}</span>`:''}</div>
-        <div class="tt">${esc(d.title)}</div>
-        <div class="muted small">${d.card_kind==='word'?'単語型':'問題型'} ・ カード ${d.card_count}枚 ・ 覚えた ${st.mastered}枚 ・ ${fmtDate(d.created_at)}</div>
-        <div class="bar"><i style="width:${pct}%"></i></div>
-      </button>`}).join('')}
-    ${!D.length?`<div class="card center"><p>まだ教材がありません。</p><button class="btn primary" onclick="showTab('make')">✨ 最初の教材を作る</button></div>`:''}
-    ${D.length&&!list.length?'<p class="muted center">この条件の教材はありません</p>':''}
-  `);
+    ${D.length?`<div class="seg" style="margin-bottom:12px">
+      <button class="${S.deckView==='folder'?'on':''}" onclick="S.deckView='folder';drawDecks()">📁 フォルダで見る</button>
+      <button class="${S.deckView==='new'?'on':''}" onclick="S.deckView='new';drawDecks()">🆕 新しい順に全部</button></div>`:''}
+    ${body}`);
 }
 
 // ------------------------------------------------------------ 教材の中身
