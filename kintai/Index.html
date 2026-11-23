@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root {
+    --bg:#f4f6f9; --card:#fff; --text:#222; --sub:#6b7280; --line:#e5e7eb;
+    --blue:#2563eb; --green:#16a34a; --red:#dc2626; --orange:#ea580c; --gray:#9ca3af;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; background:var(--bg); color:var(--text); padding-bottom:76px; }
+  .wrap { max-width:520px; margin:auto; padding:14px; }
+  .card { background:var(--card); border-radius:14px; padding:16px; box-shadow:0 2px 6px rgba(0,0,0,.06); margin-bottom:12px; }
+  h2 { font-size:17px; margin:0 0 10px; }
+  h3 { font-size:15px; margin:0 0 8px; }
+  .sub { color:var(--sub); font-size:13px; }
+  .big { font-size:28px; font-weight:bold; }
+  .center { text-align:center; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  button { font:inherit; cursor:pointer; border:none; border-radius:10px; }
+  button:disabled { opacity:.45; cursor:default; }
+  .btn-main { width:100%; padding:22px; font-size:22px; font-weight:bold; color:#fff; margin-top:10px; }
+  .btn-in { background:var(--green); }
+  .btn-out { background:var(--blue); }
+  .btn-main.dim { background:#cbd5e1; color:#475569; font-size:16px; padding:12px; }
+  .btn { padding:9px 14px; background:#eef2ff; color:var(--blue); font-weight:bold; font-size:14px; }
+  .btn-danger { background:#fee2e2; color:var(--red); }
+  .btn-solid { background:var(--blue); color:#fff; }
+  .link { background:none; color:var(--blue); padding:4px; font-size:13px; text-decoration:underline; }
+  input, select { font:inherit; font-size:16px; padding:8px; border:1px solid #cbd5e1; border-radius:8px; width:100%; background:#fff; }
+  label { font-size:13px; color:var(--sub); display:block; margin:8px 0 4px; }
+  #clock { font-size:44px; font-weight:bold; letter-spacing:1px; }
+  .chip { display:inline-block; padding:4px 10px; border-radius:99px; font-size:13px; font-weight:bold; background:#f1f5f9; color:#334155; }
+  .chip.on { background:#dcfce7; color:#166534; }
+  .bar { height:12px; background:#e5e7eb; border-radius:99px; overflow:hidden; position:relative; }
+  .bar > div { height:100%; border-radius:99px; background:var(--blue); }
+  .bar.warn > div { background:var(--orange); }
+  .bar.over > div { background:var(--red); }
+  .bar .proj { position:absolute; top:0; height:100%; background:repeating-linear-gradient(45deg,rgba(37,99,235,.25) 0 4px,transparent 4px 8px); }
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .stat { background:#f8fafc; border-radius:10px; padding:10px 6px; text-align:center; }
+  .stat b { display:block; font-size:17px; margin-top:2px; }
+  .days { display:flex; gap:4px; align-items:flex-end; height:70px; margin-top:10px; }
+  .days .d { flex:1; text-align:center; font-size:11px; color:var(--sub); display:flex; flex-direction:column; justify-content:flex-end; height:100%; }
+  .days .col { background:#93c5fd; border-radius:4px 4px 0 0; min-height:2px; }
+  .days .today .col { background:var(--blue); }
+  .days .today { color:var(--blue); font-weight:bold; }
+  #msg { white-space:pre-line; font-size:14px; font-weight:bold; margin-top:12px; min-height:18px; }
+  .warn-box { background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:10px; padding:10px; font-size:14px; margin-top:10px; white-space:pre-line; }
+  .info-box { background:#eff6ff; border:1px solid #bfdbfe; color:#1e3a8a; border-radius:10px; padding:10px; font-size:13px; margin-top:10px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { padding:8px 4px; border-bottom:1px solid var(--line); text-align:right; }
+  th:first-child, td:first-child { text-align:left; }
+  th { font-size:12px; color:var(--sub); font-weight:normal; }
+  tr.click { cursor:pointer; }
+  tr.click:active { background:#f1f5f9; }
+  .sat { color:#2563eb; } .sun { color:#dc2626; }
+  .over-t { color:var(--red); font-weight:bold; }
+  .mbars { display:flex; gap:3px; align-items:flex-end; height:120px; margin:10px 0 4px; }
+  .mbars .m { flex:1; display:flex; flex-direction:column; justify-content:flex-end; height:100%; cursor:pointer; }
+  .mbars .col { background:#60a5fa; border-radius:4px 4px 0 0; min-height:2px; }
+  .mlabels { display:flex; gap:3px; font-size:10px; color:var(--sub); }
+  .mlabels span { flex:1; text-align:center; }
+  .wall { padding:12px 0; border-bottom:1px solid var(--line); }
+  .wall:last-child { border-bottom:none; }
+  .badge { font-size:12px; font-weight:bold; padding:2px 8px; border-radius:99px; }
+  .b-ok { background:#dcfce7; color:#166534; } .b-warn { background:#ffedd5; color:#9a3412; }
+  .b-over { background:#fee2e2; color:#991b1b; }
+  .tabs { position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid var(--line); display:flex; z-index:10; }
+  .tabs button { flex:1; background:none; padding:8px 0 10px; font-size:11px; color:var(--sub); border-radius:0; }
+  .tabs button span { display:block; font-size:20px; }
+  .tabs button.active { color:var(--blue); font-weight:bold; }
+  .page { display:none; } .page.active { display:block; }
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.4); display:none; align-items:flex-end; justify-content:center; z-index:20; }
+  .modal-bg.show { display:flex; }
+  .modal { background:#fff; width:100%; max-width:520px; border-radius:16px 16px 0 0; padding:18px; }
+  .loading { color:var(--sub); text-align:center; padding:20px; }
+  details summary { cursor:pointer; color:var(--sub); font-size:13px; margin-top:12px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ===================== ホーム（入力はここだけ） ===================== -->
+  <section id="p-home" class="page active">
+    <div class="card center">
+      <div class="sub" id="today-label">&nbsp;</div>
+      <div id="clock">--:--</div>
+      <div id="status" class="chip">読み込み中…</div>
+
+      <button id="btn-in" class="btn-main btn-in" onclick="doIn()">出勤</button>
+      <button id="btn-out" class="btn-main btn-out" onclick="doOut()">退勤</button>
+
+      <div id="msg"></div>
+      <div id="warn"></div>
+
+      <details>
+        <summary>出勤時刻を変える・取り消す</summary>
+        <div class="row" style="margin-top:8px;">
+          <input type="time" id="custom-time" style="flex:1">
+          <button class="btn" onclick="doInCustom()">この時刻で出勤</button>
+        </div>
+        <button class="link" onclick="doCancelIn()">今日の出勤記録を取り消す</button>
+      </details>
+    </div>
+
+    <!-- 進捗の見える化 -->
+    <div class="card" id="week-card"><div class="loading">…</div></div>
+    <div class="card" id="mini-card"><div class="loading">…</div></div>
+  </section>
+
+  <!-- ===================== 勤怠表 ===================== -->
+  <section id="p-table" class="page">
+    <div class="card">
+      <div class="row">
+        <button class="btn" onclick="moveMonth(-1)">◀</button>
+        <select id="month-select" onchange="loadMonth(this.value)" style="flex:1;text-align:center;"></select>
+        <button class="btn" onclick="moveMonth(1)">▶</button>
+      </div>
+      <div id="month-total" style="margin-top:12px;"></div>
+    </div>
+    <div class="card">
+      <div class="row"><h3>毎日の記録</h3><button class="btn" onclick="openEdit(null)">＋ 追加</button></div>
+      <div class="sub">行をタップすると修正・削除できます</div>
+      <div id="month-table"><div class="loading">…</div></div>
+    </div>
+    <div class="card">
+      <h3>週ごとの合計</h3>
+      <div id="month-weeks"></div>
+    </div>
+  </section>
+
+  <!-- ===================== 振り返り ===================== -->
+  <section id="p-review" class="page">
+    <div class="card">
+      <div class="row">
+        <h2 style="margin:0">振り返り</h2>
+        <select id="year-select" onchange="loadYear(this.value)" style="width:120px"></select>
+      </div>
+      <div id="year-body"><div class="loading">…</div></div>
+    </div>
+    <div class="card" id="year-months"></div>
+    <div class="card" id="year-over"></div>
+  </section>
+
+  <!-- ===================== 税金 ===================== -->
+  <section id="p-tax" class="page">
+    <div class="card" id="tax-head"><div class="loading">…</div></div>
+    <div class="card" id="tax-weekly"></div>
+    <div class="card" id="tax-walls"></div>
+    <div class="card sub" style="font-size:12px;">
+      ※ 2026年11月時点の制度をもとにした目安です。住民税は自治体、社会保険は勤務先の規模や契約内容で変わります。
+      正確な判断は勤務先・市区町村・税務署に確認してください。年収は「交通費を除いた額面（税金などが引かれる前）」で考えます。
+    </div>
+  </section>
+
+  <!-- ===================== 設定 ===================== -->
+  <section id="p-set" class="page">
+    <div class="card">
+      <h2>時給</h2>
+      <div class="sub">時給が変わったら「いつから・いくら」を登録してください。過去の記録も自動で計算し直します。</div>
+      <div id="wage-list" style="margin-top:8px;"></div>
+      <div class="two">
+        <div><label>適用開始日</label><input type="date" id="wage-date"></div>
+        <div><label>時給（円）</label><input type="number" id="wage-val" inputmode="numeric" placeholder="1600"></div>
+      </div>
+      <button class="btn btn-solid" style="width:100%;margin-top:10px;" onclick="saveWage()">時給を登録して計算し直す</button>
+    </div>
+
+    <div class="card">
+      <h2>お知らせメール</h2>
+      <div class="sub">毎週金曜日に「今週あと何時間働けるか」、毎日22時に「退勤の押し忘れ」をメールでお知らせします。</div>
+      <div id="notify-state" style="margin:10px 0;" class="chip">確認中…</div>
+      <div class="row">
+        <button class="btn btn-solid" onclick="call('setupNotifications', [], setMsg('set-msg'))">オンにする</button>
+        <button class="btn" onclick="call('testFridayMail', [], setMsg('set-msg'))">テスト送信</button>
+        <button class="btn btn-danger" onclick="call('removeNotifications', [], setMsg('set-msg'))">オフ</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>基本設定</h2>
+      <div class="two">
+        <div><label>週の上限（時間）</label><input type="number" id="s-limit" step="0.5"></div>
+        <div><label>週の始まり</label>
+          <select id="s-wstart"><option>月</option><option>火</option><option>水</option><option>木</option><option>金</option><option>土</option><option>日</option></select></div>
+        <div><label>標準の出勤時刻</label><input type="time" id="s-start"></div>
+        <div><label>金曜通知の時刻</label><input type="number" id="s-hour" min="0" max="23"></div>
+        <div><label>学生ですか</label><select id="s-student"><option>はい</option><option>いいえ</option></select></div>
+        <div><label>19〜22歳ですか</label><select id="s-young"><option>はい</option><option>いいえ</option></select></div>
+      </div>
+      <label>通知先メール（空欄なら自分のGmail）</label><input type="email" id="s-mail">
+      <button class="btn btn-solid" style="width:100%;margin-top:12px;" onclick="saveSettings()">保存</button>
+    </div>
+
+    <div class="card">
+      <button class="btn" onclick="call('recalcAll', [], function(n){ setMsg('set-msg')(n + '件を計算し直しました'); })">全部の記録を計算し直す</button>
+      <div style="margin-top:12px;"><a id="sheet-link" target="_blank" class="sub">📄 スプレッドシートを開く</a></div>
+    </div>
+    <div id="set-msg" class="center" style="font-weight:bold;color:var(--green);white-space:pre-line;"></div>
+  </section>
+</div>
+
+<!-- 下のタブ -->
+<nav class="tabs">
+  <button class="active" data-p="home" onclick="go('home')"><span>⏱</span>打刻</button>
+  <button data-p="table" onclick="go('table')"><span>📅</span>勤怠表</button>
+  <button data-p="review" onclick="go('review')"><span>📊</span>振り返り</button>
+  <button data-p="tax" onclick="go('tax')"><span>💴</span>税金</button>
+  <button data-p="set" onclick="go('set')"><span>⚙️</span>設定</button>
+</nav>
+
+<!-- 修正用の画面 -->
+<div class="modal-bg" id="modal" onclick="if(event.target===this)closeEdit()">
+  <div class="modal">
+    <h2 id="edit-title">記録の修正</h2>
+    <label>日付</label><input type="date" id="e-date">
+    <div class="two">
+      <div><label>出勤</label><input type="time" id="e-start"></div>
+      <div><label>退勤</label><input type="time" id="e-end"></div>
+    </div>
+    <div class="row" style="margin-top:16px;">
+      <button class="btn btn-danger" id="e-del" onclick="delEdit()">削除</button>
+      <div><button class="btn" onclick="closeEdit()">やめる</button>
+      <button class="btn btn-solid" onclick="saveEdit()">保存</button></div>
+    </div>
+    <div id="e-msg" style="color:var(--red);margin-top:8px;font-size:13px;"></div>
+  </div>
+</div>
+
+<script>
+  var D = null;            // ホームのデータ
+  var curMonth = null;     // 勤怠表で表示中の月
+  var monthList = [];
+  var editing = null;
+
+  // ---------- 共通 ----------
+  function $(id) { return document.getElementById(id); }
+  function yen(n) { return Math.round(n).toLocaleString() + '円'; }
+  function man(n) { return (n / 10000).toFixed(1) + '万円'; }
+  function h2(n) { return Number(n).toFixed(1) + 'h'; }
+  function call(fn, args, ok, ng) {
+    var r = google.script.run.withSuccessHandler(ok || function(){})
+      .withFailureHandler(function (e) { (ng || alert)(e && e.message ? e.message : 'エラーが発生しました'); });
+    r[fn].apply(r, args || []);
+  }
+  function setMsg(id) { return function (t) { $(id).innerText = t; refreshAll(); }; }
+  function wdClass(label) { return label.indexOf('(土)') >= 0 ? 'sat' : label.indexOf('(日)') >= 0 ? 'sun' : ''; }
+  function barHtml(rate, cls, projRate) {
+    var w = Math.min(100, rate * 100);
+    var p = projRate ? '<div class="proj" style="left:' + w + '%;width:' + Math.max(0, Math.min(100, projRate * 100) - w) + '%"></div>' : '';
+    return '<div class="bar ' + (cls || '') + '"><div style="width:' + w + '%"></div>' + p + '</div>';
+  }
+
+  function go(p) {
+    document.querySelectorAll('.page').forEach(function (e) { e.classList.remove('active'); });
+    $('p-' + p).classList.add('active');
+    document.querySelectorAll('.tabs button').forEach(function (b) { b.classList.toggle('active', b.dataset.p === p); });
+    window.scrollTo(0, 0);
+    if (p === 'table' && !curMonth) loadMonth(D ? D.today.slice(0, 7).replace('/', '-') : null);
+    if (p === 'review') loadYear($('year-select').value || (D && D.today.slice(0, 4)));
+    if (p === 'set') loadSettings();
+  }
+
+  function refreshAll() {
+    loadHome();
+    if (curMonth) loadMonth(curMonth);
+  }
+
+  // ---------- 時計 ----------
+  setInterval(function () {
+    var d = new Date();
+    $('clock').innerText = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }, 1000);
+
+  // ---------- ホーム ----------
+  function loadHome() { call('getDashboard', [], renderHome); }
+
+  function renderHome(d) {
+    D = d;
+    $('today-label').innerText = d.todayLabel;
+    var done = d.todayRecords.length > 0;
+
+    // 状態とボタン
+    if (d.pendingStart) {
+      $('status').className = 'chip on';
+      $('status').innerText = '出勤中（' + d.pendingStart + '〜）';
+      $('btn-in').className = 'btn-main btn-in dim';
+      $('btn-in').innerText = '出勤済み ' + d.pendingStart;
+      $('btn-in').disabled = true;
+      $('btn-out').className = 'btn-main btn-out';
+      $('btn-out').innerText = '退勤';
+    } else if (done) {
+      var r = d.todayRecords[d.todayRecords.length - 1];
+      $('status').className = 'chip';
+      $('status').innerText = '本日おつかれさまでした（' + r.start + '〜' + r.end + '）';
+      $('btn-in').className = 'btn-main btn-in dim';
+      $('btn-in').innerText = 'もう一度出勤';
+      $('btn-in').disabled = false;
+      $('btn-out').className = 'btn-main btn-out dim';
+      $('btn-out').innerText = '退勤（もう一度記録）';
+    } else {
+      $('status').className = 'chip';
+      $('status').innerText = '未出勤（押さなければ ' + d.defaultStart + ' 出勤で計算）';
+      $('btn-in').className = 'btn-main btn-in';
+      $('btn-in').innerText = '出勤';
+      $('btn-in').disabled = false;
+      $('btn-out').className = 'btn-main btn-out';
+      $('btn-out').innerText = '退勤';
+    }
+    if (!$('custom-time').value) $('custom-time').value = d.defaultStart;
+
+    // 今週
+    var w = d.week, rate = w.hours / d.limit;
+    var cls = rate > 1 ? 'over' : rate >= 0.8 ? 'warn' : '';
+    var maxH = Math.max(8, Math.max.apply(null, w.days.map(function (x) { return x.hours; })));
+    var html = '<div class="row"><h3>今週 <span class="sub">' + w.label + '</span></h3><span class="sub">' + yen(w.salary) + '</span></div>' +
+      '<div class="row" style="align-items:baseline"><span class="big">' + w.hours.toFixed(1) + '<span style="font-size:16px"> / ' + d.limit + ' 時間</span></span>' +
+      '<span class="' + (rate > 1 ? 'over-t' : 'sub') + '">' + (rate > 1 ? (w.hours - d.limit).toFixed(1) + '時間オーバー' : 'あと ' + d.remain.toFixed(1) + ' 時間') + '</span></div>' +
+      barHtml(rate, cls);
+    if (d.okUntil && d.remain > 0) {
+      html += '<div class="info-box">今日 ' + (d.pendingStart || d.defaultStart) + ' 出勤なら <b>' + d.okUntil + ' まで</b> 働いても上限内です</div>';
+    }
+    if (d.isFriday && d.remain > 0) {
+      html += '<div class="warn-box">📣 金曜日です。今週の残りは あと ' + d.remain.toFixed(1) + ' 時間です。</div>';
+    }
+    html += '<div class="days">' + w.days.map(function (x) {
+      return '<div class="d' + (x.isToday ? ' today' : '') + '"><div style="font-size:10px">' + (x.hours ? x.hours.toFixed(1) : '') + '</div>' +
+        '<div class="col" style="height:' + (x.hours / maxH * 50) + 'px"></div>' + x.wd + '</div>';
+    }).join('') + '</div>';
+    $('week-card').innerHTML = html;
+
+    // 今月・今年
+    var near = d.walls.list.filter(function (x) { return x.status !== '超えた'; })[0];
+    var m = '<div class="grid3">' +
+      '<div class="stat"><span class="sub">今月の時間</span><b>' + d.month.hours.toFixed(1) + 'h</b><span class="sub">' + d.month.days + '日</span></div>' +
+      '<div class="stat"><span class="sub">今月の給与</span><b>' + yen(d.month.salary) + '</b><span class="sub">時給' + d.wage.toLocaleString() + '</span></div>' +
+      '<div class="stat"><span class="sub">今年の給与</span><b>' + man(d.year.salary) + '</b><span class="sub">見込' + man(d.projection) + '</span></div>' +
+      '</div>';
+    if (near) {
+      m += '<div style="margin-top:12px" class="sub">次の壁：' + near.title + '（' + man(near.amount) + '）</div>' +
+        barHtml(d.year.salary / near.amount, near.status === '余裕' ? '' : near.status === '注意' ? 'warn' : 'over', d.projection / near.amount) +
+        '<div class="sub" style="margin-top:4px">あと ' + man(Math.max(0, near.amount - d.year.salary)) + '（' + near.status + '）　<button class="link" onclick="go(\'tax\')">くわしく</button></div>';
+    }
+    $('mini-card').innerHTML = m;
+    renderTax(d.year.salary, d.projection, d.walls, d.week, d.limit, d.today.slice(0, 4), true);
+  }
+
+  function lockButtons(b) { $('btn-in').disabled = b || (D && !!D.pendingStart); $('btn-out').disabled = b; }
+
+  function doIn() {
+    lockButtons(true);
+    $('msg').style.color = '#555'; $('msg').innerText = '記録中…'; $('warn').innerHTML = '';
+    call('punchIn', [], function (t) { $('msg').style.color = 'var(--green)'; $('msg').innerText = t; loadHome(); },
+      function (e) { $('msg').style.color = 'var(--red)'; $('msg').innerText = e; lockButtons(false); });
+  }
+  function doInCustom() {
+    var t = $('custom-time').value;
+    if (!t) { alert('時刻を入力してください'); return; }
+    call('punchIn', [t], function (m) { $('msg').style.color = 'var(--green)'; $('msg').innerText = m; loadHome(); });
+  }
+  function doCancelIn() {
+    if (!confirm('今日の出勤記録を取り消しますか？')) return;
+    call('cancelPunchIn', [], function (m) { $('msg').style.color = '#555'; $('msg').innerText = m; loadHome(); });
+  }
+  function doOut() {
+    if (D && D.todayRecords.length && !D.pendingStart && !confirm('今日はもう退勤が記録されています。もう一度記録しますか？')) return;
+    lockButtons(true);
+    $('msg').style.color = '#555'; $('msg').innerText = '記録中…'; $('warn').innerHTML = '';
+    call('punchOut', [], function (r) {
+      $('msg').style.color = 'var(--green)'; $('msg').innerText = r.message;
+      if (r.warning) $('warn').innerHTML = '<div class="warn-box">' + r.warning + '</div>';
+      refreshAll();
+    }, function (e) { $('msg').style.color = 'var(--red)'; $('msg').innerText = e; lockButtons(false); });
+  }
+
+  // ---------- 勤怠表 ----------
+  function loadMonth(ym) {
+    curMonth = ym;
+    $('month-table').innerHTML = '<div class="loading">読み込み中…</div>';
+    call('getMonth', [ym], renderMonth);
+  }
+  function moveMonth(diff) {
+    var y = Number(curMonth.slice(0, 4)), m = Number(curMonth.slice(5, 7)) + diff;
+    if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+    loadMonth(y + '-' + ('0' + m).slice(-2));
+  }
+  function renderMonth(d) {
+    monthList = d.months.indexOf(d.ym) < 0 ? d.months.concat([d.ym]).sort().reverse() : d.months;
+    $('month-select').innerHTML = monthList.map(function (m) {
+      return '<option value="' + m + '"' + (m === d.ym ? ' selected' : '') + '>' + m.replace('-', '年') + '月</option>';
+    }).join('');
+    $('month-total').innerHTML = '<div class="grid3">' +
+      '<div class="stat"><span class="sub">出勤日数</span><b>' + d.total.days + '日</b></div>' +
+      '<div class="stat"><span class="sub">合計時間</span><b>' + d.total.hours.toFixed(2) + 'h</b></div>' +
+      '<div class="stat"><span class="sub">給与合計</span><b>' + yen(d.total.salary) + '</b></div></div>';
+    if (!d.records.length) {
+      $('month-table').innerHTML = '<div class="loading">この月の記録はありません</div>';
+    } else {
+      window._recs = d.records;
+      $('month-table').innerHTML = '<table><tr><th>日付</th><th>出勤</th><th>退勤</th><th>時間</th><th>給与</th></tr>' +
+        d.records.map(function (r, i) {
+          return '<tr class="click" onclick="openEdit(' + i + ')"><td class="' + wdClass(r.label) + '">' + r.label + '</td><td>' + r.start + '</td><td>' + r.end +
+            '</td><td>' + r.hours.toFixed(2) + '</td><td>' + r.salary.toLocaleString() + '</td></tr>';
+        }).join('') + '</table>';
+    }
+    $('month-weeks').innerHTML = '<table><tr><th>週</th><th>時間</th><th></th></tr>' + d.weeks.map(function (w) {
+      var over = w.hours > d.limit;
+      return '<tr><td>' + w.label + '</td><td class="' + (over ? 'over-t' : '') + '">' + w.hours.toFixed(2) + 'h</td><td>' + (over ? '⚠️超過' : w.hours ? '✓' : '') + '</td></tr>';
+    }).join('') + '</table><div class="sub" style="margin-top:6px">上限 ' + d.limit + '時間／週。月をまたぐ週は前後の月の分も含めています。</div>';
+  }
+
+  function openEdit(i) {
+    editing = (i === null) ? null : window._recs[i];
+    $('edit-title').innerText = editing ? '記録の修正' : '記録の追加';
+    $('e-del').style.display = editing ? '' : 'none';
+    $('e-msg').innerText = '';
+    if (editing) {
+      $('e-date').value = editing.date.replace(/\//g, '-');
+      $('e-start').value = editing.start; $('e-end').value = editing.end;
+    } else {
+      var def = (D && curMonth === D.today.slice(0, 7).replace('/', '-')) ? D.today.replace(/\//g, '-') : curMonth + '-01';
+      $('e-date').value = def; $('e-start').value = D ? D.defaultStart : '09:00'; $('e-end').value = '';
+    }
+    $('modal').classList.add('show');
+  }
+  function closeEdit() { $('modal').classList.remove('show'); }
+  function saveEdit() {
+    var dt = $('e-date').value, s = $('e-start').value, e = $('e-end').value;
+    if (!dt || !s || !e) { $('e-msg').innerText = '日付・出勤・退勤を入力してください'; return; }
+    var done = function () { closeEdit(); loadMonth(dt.slice(0, 7)); loadHome(); };
+    var ng = function (m) { $('e-msg').innerText = m; };
+    if (editing) call('updateRecord', [editing.sheet, editing.row, editing.date, dt, s, e], done, ng);
+    else call('addRecord', [dt, s, e], done, ng);
+  }
+  function delEdit() {
+    if (!confirm(editing.label + ' の記録を削除しますか？')) return;
+    call('deleteRecord', [editing.sheet, editing.row, editing.date], function () { closeEdit(); loadMonth(curMonth); loadHome(); },
+      function (m) { $('e-msg').innerText = m; });
+  }
+
+  // ---------- 振り返り ----------
+  function loadYear(y) {
+    $('year-body').innerHTML = '<div class="loading">読み込み中…</div>';
+    call('getYear', [y], renderYear);
+  }
+  function renderYear(d) {
+    $('year-select').innerHTML = d.years.map(function (y) { return '<option' + (y === d.year ? ' selected' : '') + '>' + y + '</option>'; }).join('');
+    var t = d.total, p = d.prevTotal;
+    var diff = p.salary ? ('前年比 ' + (t.salary >= p.salary ? '+' : '') + man(t.salary - p.salary)) : '';
+    $('year-body').innerHTML = '<div class="grid3" style="margin-top:10px">' +
+      '<div class="stat"><span class="sub">出勤日数</span><b>' + t.days + '日</b></div>' +
+      '<div class="stat"><span class="sub">合計時間</span><b>' + t.hours.toFixed(0) + 'h</b></div>' +
+      '<div class="stat"><span class="sub">給与合計</span><b>' + man(t.salary) + '</b></div></div>' +
+      '<div class="sub" style="margin-top:8px">週の平均 ' + d.avgWeekHours.toFixed(1) + '時間（働いた週 ' + d.weekCount + '週）' +
+      (d.isCurrent ? '　年末見込み ' + man(d.projection) : '') + (diff ? '　' + diff : '') + '</div>';
+
+    var max = Math.max(1, Math.max.apply(null, d.months.map(function (m) { return m.salary; })));
+    $('year-months').innerHTML = '<h3>月ごとの給与</h3><div class="sub">棒をタップするとその月の勤怠表を開きます</div>' +
+      '<div class="mbars">' + d.months.map(function (m) {
+        return '<div class="m" onclick="go(\'table\');loadMonth(\'' + m.ym + '\')"><div style="font-size:9px;text-align:center;color:var(--sub)">' +
+          (m.salary ? (m.salary / 10000).toFixed(1) : '') + '</div><div class="col" style="height:' + (m.salary / max * 95) + 'px"></div></div>';
+      }).join('') + '</div><div class="mlabels">' + d.months.map(function (m, i) { return '<span>' + (i + 1) + '</span>'; }).join('') + '</div>' +
+      '<table style="margin-top:12px"><tr><th>月</th><th>日数</th><th>時間</th><th>給与</th></tr>' + d.months.map(function (m, i) {
+        return m.days ? '<tr class="click" onclick="go(\'table\');loadMonth(\'' + m.ym + '\')"><td>' + (i + 1) + '月</td><td>' + m.days + '</td><td>' + m.hours.toFixed(1) + '</td><td>' + m.salary.toLocaleString() + '</td></tr>' : '';
+      }).join('') + '<tr><td><b>合計</b></td><td><b>' + t.days + '</b></td><td><b>' + t.hours.toFixed(1) + '</b></td><td><b>' + t.salary.toLocaleString() + '</b></td></tr></table>';
+
+    $('year-over').innerHTML = '<h3>上限を超えた週</h3>' + (d.overWeeks.length
+      ? '<table>' + d.overWeeks.map(function (w) { return '<tr><td>' + w.label + ' の週</td><td class="over-t">' + w.hours.toFixed(2) + 'h</td></tr>'; }).join('') + '</table>'
+      : '<div class="sub">ありません 👍</div>');
+  }
+
+  // ---------- 税金 ----------
+  function renderTax(actual, proj, walls, week, limit, year) {
+    $('tax-head').innerHTML = '<h2>' + year + '年の収入と「年収の壁」</h2>' +
+      '<div class="two"><div class="stat"><span class="sub">今年ここまで</span><b>' + yen(actual) + '</b></div>' +
+      '<div class="stat"><span class="sub">年末までの見込み</span><b>' + yen(proj) + '</b></div></div>' +
+      '<div class="sub" style="margin-top:8px">見込みは「今のペースで12月まで働いた場合」です。棒グラフの斜線部分が見込みの増加分です。</div>';
+    var rate = week.hours / limit;
+    $('tax-weekly').innerHTML = '<h3>' + walls.weekly.title + '</h3>' +
+      '<div class="row"><span>今週 ' + week.hours.toFixed(1) + ' / ' + limit + ' 時間</span></div>' + barHtml(rate, rate > 1 ? 'over' : rate >= .8 ? 'warn' : '') +
+      '<div class="sub" style="margin-top:8px">' + walls.weekly.desc + '</div>';
+    var monthsLeft = 12 - new Date().getMonth();
+    $('tax-walls').innerHTML = '<h3>年収の壁</h3>' + walls.list.map(function (w) {
+      var b = w.status === '余裕' ? 'b-ok' : w.status === '注意' ? 'b-warn' : 'b-over';
+      var left = w.amount - actual;
+      var perMonth = left > 0 ? '　→ 超えないには残り' + monthsLeft + 'か月で月平均 ' + man(left / monthsLeft) + ' まで' : '';
+      return '<div class="wall"><div class="row"><b>' + man(w.amount) + '　' + w.title + '</b><span class="badge ' + b + '">' + w.status + '</span></div>' +
+        barHtml(w.actualRate, w.status === '余裕' ? '' : w.status === '注意' ? 'warn' : 'over', w.projRate) +
+        '<div class="sub" style="margin-top:4px">あと ' + (left > 0 ? man(left) : '0円') + perMonth + '</div>' +
+        '<div style="font-size:13px;margin-top:6px">' + w.desc + '</div></div>';
+    }).join('');
+  }
+
+  // ---------- 設定 ----------
+  function loadSettings() {
+    call('getWages', [], function (list) {
+      $('wage-list').innerHTML = '<table><tr><th>適用開始日</th><th>時給</th><th></th></tr>' + list.map(function (w) {
+        return '<tr><td>' + (w.from === '2000/01/01' ? '最初から' : w.from + ' 〜') + '</td><td>' + w.wage.toLocaleString() + '円</td><td>' +
+          (list.length > 1 ? '<button class="link" onclick="delWage(' + w.row + ')">削除</button>' : '') + '</td></tr>';
+      }).join('') + '</table>';
+    });
+    call('notificationsOn', [], function (on) {
+      $('notify-state').className = 'chip' + (on ? ' on' : '');
+      $('notify-state').innerText = on ? 'オン（毎週金曜・毎日22時）' : 'オフ';
+    });
+    if (D) {
+      var s = D.settings;
+      $('s-limit').value = s['週の上限時間']; $('s-wstart').value = String(s['週の始まり']).charAt(0);
+      $('s-start').value = s['標準の出勤時刻']; $('s-hour').value = s['金曜通知の時刻'];
+      $('s-student').value = s['学生']; $('s-young').value = s['19〜22歳']; $('s-mail').value = s['通知先メール'];
+    }
+  }
+  function saveWage() {
+    var d = $('wage-date').value, w = $('wage-val').value;
+    if (!d || !w) { alert('適用開始日と時給を入力してください'); return; }
+    $('set-msg').innerText = '計算し直しています…';
+    call('addWage', [d, w], function (m) { setMsg('set-msg')(m); loadSettings(); });
+  }
+  function delWage(row) {
+    if (!confirm('この時給を削除しますか？（記録は計算し直されます）')) return;
+    call('deleteWage', [row], function (m) { setMsg('set-msg')(m); loadSettings(); });
+  }
+  function saveSettings() {
+    call('saveSettings', [{
+      '週の上限時間': Number($('s-limit').value) || 20, '週の始まり': $('s-wstart').value,
+      '標準の出勤時刻': $('s-start').value || '09:00', '金曜通知の時刻': Number($('s-hour').value) || 8,
+      '学生': $('s-student').value, '19〜22歳': $('s-young').value, '通知先メール': $('s-mail').value.trim()
+    }], function (m) { setMsg('set-msg')(m + '\n（通知の時刻を変えた場合は「オンにする」をもう一度押してください）'); });
+  }
+
+  loadHome();
+  call('getSheetUrl', [], function (u) { $('sheet-link').href = u; });
+</script>
+</body>
+</html>
