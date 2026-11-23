@@ -235,6 +235,30 @@ class SupaStore:
         return self._req("GET", "flash_sessions", {"profile_id": f"eq.{int(profile_id)}", "select": "*",
                                                    "order": "finished_at.desc", "limit": str(limit)})
 
+    # テスト
+    def add_test(self, row):
+        return self._req("POST", "flash_tests", body=row, prefer="return=representation")[0]
+
+    def list_tests(self, profile_id):
+        tests = self._req("GET", "flash_tests", {"profile_id": f"eq.{int(profile_id)}",
+                                                 "select": "id,title,subject,deck_ids,memo,created_at", "order": "created_at.desc"})
+        atts = self._req("GET", "flash_test_attempts", {"profile_id": f"eq.{int(profile_id)}",
+                                                        "select": "id,test_id,score,total,finished_at", "order": "finished_at.desc"})
+        return tests, atts
+
+    def get_test(self, test_id):
+        rows = self._req("GET", "flash_tests", {"id": f"eq.{int(test_id)}", "select": "*"})
+        if not rows:
+            raise ApiError("テストが見つかりません", 404)
+        atts = self._req("GET", "flash_test_attempts", {"test_id": f"eq.{int(test_id)}", "select": "*", "order": "finished_at.desc"})
+        return rows[0], atts
+
+    def add_attempt(self, row):
+        return self._req("POST", "flash_test_attempts", body=row, prefer="return=representation")[0]
+
+    def delete_test(self, test_id):
+        self._req("DELETE", "flash_tests", {"id": f"eq.{int(test_id)}"})
+
     def review_cards(self, profile_id):
         rows = self._req("GET", "flash_progress", {
             "in_review": "is.true",
@@ -380,6 +404,40 @@ class MemoryStore:
     def save_progress(self, row):
         self._need()
         self.data["progress"][int(row["card_id"])] = row
+
+    def add_test(self, row):
+        self._need()
+        r = dict(row, id=self._id(), created_at=iso(now_utc()))
+        self.data.setdefault("tests", []).append(r)
+        return r
+
+    def list_tests(self, profile_id):
+        self._need()
+        tests = sorted([dict(t) for t in self.data.get("tests", []) if t["profile_id"] == int(profile_id)],
+                       key=lambda t: t["created_at"], reverse=True)
+        atts = sorted([dict(a) for a in self.data.get("attempts", []) if a["profile_id"] == int(profile_id)],
+                      key=lambda a: a["finished_at"], reverse=True)
+        return tests, atts
+
+    def get_test(self, test_id):
+        self._need()
+        t = next((dict(t) for t in self.data.get("tests", []) if t["id"] == int(test_id)), None)
+        if not t:
+            raise ApiError("テストが見つかりません", 404)
+        atts = sorted([dict(a) for a in self.data.get("attempts", []) if a["test_id"] == int(test_id)],
+                      key=lambda a: a["finished_at"], reverse=True)
+        return t, atts
+
+    def add_attempt(self, row):
+        self._need()
+        r = dict(row, id=self._id())
+        self.data.setdefault("attempts", []).append(r)
+        return r
+
+    def delete_test(self, test_id):
+        self._need()
+        self.data["tests"] = [t for t in self.data.get("tests", []) if t["id"] != int(test_id)]
+        self.data["attempts"] = [a for a in self.data.get("attempts", []) if a["test_id"] != int(test_id)]
 
     def get_progress_many(self, ids):
         self._need()
@@ -617,6 +675,139 @@ def ai_reorder(deck, cards, model=None):
     return data.get("cards", [])
 
 
+TEST_TYPES = {"choice": "4択", "short": "一問一答(書いて答える)", "tf": "○×", "written": "記述(説明する)"}
+TEST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "questions": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": list(TEST_TYPES)},
+                "question": {"type": "string"},
+                "choices": {"type": "array", "items": {"type": "string"}},
+                "answer": {"type": "string"},
+                "explanation": {"type": "string"},
+                "card_id": {"type": "integer"},
+            },
+            "required": ["type", "question", "choices", "answer", "explanation", "card_id"],
+            "additionalProperties": False}},
+    },
+    "required": ["title", "questions"],
+    "additionalProperties": False,
+}
+GRADE_SCHEMA = {
+    "type": "object",
+    "properties": {"results": {"type": "array", "items": {
+        "type": "object", "properties": {"index": {"type": "integer"}, "ok": {"type": "boolean"}, "comment": {"type": "string"}},
+        "required": ["index", "ok", "comment"], "additionalProperties": False}}},
+    "required": ["results"], "additionalProperties": False,
+}
+
+
+def ai_make_test(decks, opts):
+    types = [t for t in (opts.get("types") or []) if t in TEST_TYPES] or ["choice", "short"]
+    count = max(5, min(60, int(opts.get("count") or 20)))
+    cards = [c for _, cs in decks for c in cs]
+    if MOCK:
+        qs = []
+        for i, c in enumerate(cards[:count]):
+            t = types[i % len(types)]
+            if t == "choice":
+                qs.append({"type": t, "question": c["question"], "choices": [c["answer"], "ちがう1", "ちがう2", "ちがう3"],
+                           "answer": c["answer"], "explanation": c.get("note", ""), "card_id": c["id"]})
+            elif t == "tf":
+                qs.append({"type": t, "question": f"「{c['question']}」の答えは「{c['answer']}」である。", "choices": ["○", "×"],
+                           "answer": "○", "explanation": "", "card_id": c["id"]})
+            else:
+                qs.append({"type": t, "question": c["question"], "choices": [], "answer": c["answer"], "explanation": "", "card_id": c["id"]})
+        return {"title": "お試しテスト", "questions": qs}
+    parts = []
+    for d, cs in decks:
+        parts.append(f"### 教材「{d.get('title')}」(科目: {d.get('subject') or '不明'})")
+        parts.append(json.dumps([{"card_id": c["id"], "q": c["question"], "a": c["answer"], "note": c.get("note", "")} for c in cs][:200],
+                                ensure_ascii=False))
+        if d.get("source_text"):
+            parts.append("教材の内容(抜粋):\n" + d["source_text"][:6000])
+    prompt = "\n".join([
+        "あなたは日本の中学・高校のベテラン教師です。下のフラッシュカードと教材の内容から、定期テストの本番に近い試験問題を作ってください。",
+        f"- 問題数: {count}問。形式は次の中から、バランスよく混ぜる: " + "、".join(TEST_TYPES[t] for t in types),
+        "- フラッシュカードの丸写しではなく、聞き方を変えたり、2つの知識を組み合わせたりして、本当に理解しているかを確かめる問題にする。ただし教材の範囲を出ない。",
+        "- choice(4択): choices に4つ。正解は1つだけ。answer は正解の選択肢の文字列そのもの。まぎらわしいが明らかに間違いの選択肢を入れる。正解の位置はばらばらに。",
+        "- tf(○×): choices は [\"○\", \"×\"]。answer は \"○\" か \"×\"。×の問題も入れる。",
+        "- short(一問一答): choices は空。answer は短い正解(用語・人名・年など)。別の書き方も正解なら「／」で区切って並べる(例: 外国船打払令／異国船打払令)。",
+        "- written(記述): choices は空。answer は模範解答(1〜3文)。question には「〜を説明しなさい」など何を書けばよいか分かるように。",
+        "- explanation: なぜその答えになるかの短い解説。",
+        "- card_id: その問題の元になったカードの card_id(複数なら一番関係の深いもの)。なければ 0。",
+        "- 出題の順番は教材の順番を基本にする。",
+        "- title: テストの名前(例:「江戸時代 確認テスト」)。",
+        ("## 追加の注文\n" + opts["instructions"].strip()) if (opts.get("instructions") or "").strip() else "",
+        "", "## 範囲(フラッシュカードと教材)", *parts,
+    ])
+    data = json.loads(claude_call(prompt, "medium", schema=TEST_SCHEMA, max_tokens=48000, model=pick_model(opts.get("model"))))
+    valid = {c["id"] for c in cards}
+    qs = []
+    for q in data.get("questions", []):
+        if not q.get("question") or not q.get("answer"):
+            continue
+        q["card_id"] = q.get("card_id") if q.get("card_id") in valid else 0
+        if q["type"] == "tf":
+            q["choices"] = ["○", "×"]
+        if q["type"] == "choice" and q["answer"] not in q.get("choices", []):
+            q["choices"] = (q.get("choices") or [])[:3] + [q["answer"]]
+        if q["type"] in ("short", "written"):
+            q["choices"] = []
+        qs.append(q)
+    if not qs:
+        raise ApiError("テストを作れませんでした。もう一度お試しください。", 422)
+    return {"title": data.get("title") or "確認テスト", "questions": qs}
+
+
+def norm_ans(x):
+    import unicodedata
+    x = unicodedata.normalize("NFKC", str(x or "")).lower()
+    return re.sub(r"[\s、。，．,.・「」『』()（）]", "", x)
+
+
+def grade_test(questions, answers):
+    """4択・○×・答えが一致した一問一答はその場で採点。残りはAIがまとめて採点する。"""
+    results, ask = [], []
+    for i, q in enumerate(questions):
+        given = str(answers[i] if i < len(answers) and answers[i] is not None else "").strip()
+        r = {"ok": False, "comment": "", "given": given}
+        if not given:
+            r["comment"] = "未回答"
+        elif q["type"] in ("choice", "tf"):
+            r["ok"] = norm_ans(given) == norm_ans(q["answer"])
+        else:
+            alts = [norm_ans(a) for a in re.split(r"[／/]", q["answer"]) if a.strip()]
+            if norm_ans(given) in alts:
+                r["ok"] = True
+            else:
+                ask.append(i)
+        results.append(r)
+    if ask:
+        if MOCK:
+            for i in ask:
+                results[i]["comment"] = "(お試しモード: AI採点の代わり)"
+        else:
+            items = [{"index": i, "type": TEST_TYPES[questions[i]["type"]], "question": questions[i]["question"],
+                      "model_answer": questions[i]["answer"], "student_answer": results[i]["given"]} for i in ask]
+            prompt = "\n".join([
+                "あなたは中学・高校の先生です。生徒の答えを採点してください。",
+                "- 一問一答: 意味が同じで正しい用語・人名なら正解(ひらがな書き・別名・表記ゆれは正解でよい。ただし明らかに違う語は不正解)。漢字の誤りがあれば正解でもコメントで指摘。",
+                "- 記述: 模範解答の大事なポイントが入っていれば正解。足りないポイントがあれば不正解にして、何が足りないかをコメントで。",
+                "- comment は生徒向けに短く、やさしく(1〜2文)。",
+                "", json.dumps(items, ensure_ascii=False)])
+            data = json.loads(claude_call(prompt, "low", schema=GRADE_SCHEMA, max_tokens=8000, model=pick_model("sonnet")))
+            for g in data.get("results", []):
+                i = g.get("index")
+                if i in ask:
+                    results[i]["ok"] = bool(g.get("ok"))
+                    results[i]["comment"] = str(g.get("comment") or "")
+    return results
+
+
 def ai_regenerate(deck, targets, others, instructions):
     if MOCK:
         return [dict(id=c["id"], question=c["question"] + "(作り直し)", answer=c["answer"], note=c.get("note", ""),
@@ -844,6 +1035,79 @@ def handle(action, body, passcode):
     if action == "delete_cards":
         s.delete_cards(body.get("card_ids") or [])
         return {"ok": True}
+
+    if action == "create_test":
+        decks = []
+        for did in body.get("deck_ids") or []:
+            d, cs = s.get_deck(did)
+            if cs:
+                decks.append((d, cs))
+        if not decks:
+            raise ApiError("範囲にする教材を選んでください")
+        t = ai_make_test(decks, body)
+        subjects = [d.get("subject") for d, _ in decks if d.get("subject")]
+        row = s.add_test({
+            "profile_id": int(body["profile_id"]),
+            "title": str(body.get("title") or "").strip() or t["title"],
+            "subject": subjects[0] if subjects and len(set(subjects)) == 1 else ("・".join(sorted(set(subjects))) if subjects else ""),
+            "deck_ids": [int(d["id"]) for d, _ in decks],
+            "questions": t["questions"],
+            "memo": f"AI: {MODEL_LABEL.get(pick_model(body.get('model')), '')}",
+        })
+        return {"test_id": row["id"], "title": row["title"], "count": len(t["questions"])}
+
+    if action == "list_tests":
+        tests, atts = s.list_tests(body["profile_id"])
+        for t in tests:
+            mine = [a for a in atts if a["test_id"] == t["id"]]
+            t["attempts"] = len(mine)
+            t["last"] = mine[0] if mine else None
+            t["best"] = max(mine, key=lambda a: (a["score"] / a["total"]) if a["total"] else 0) if mine else None
+        return {"tests": tests}
+
+    if action == "get_test":
+        t, atts = s.get_test(body["test_id"])
+        return {"test": t, "attempts": atts}
+
+    if action == "delete_test":
+        s.delete_test(body["test_id"])
+        return {"ok": True}
+
+    if action == "submit_test":
+        t, _ = s.get_test(body["test_id"])
+        qs = t["questions"]
+        only = body.get("only")  # 間違えた問題だけ解き直すときの問題番号
+        idx = [int(i) for i in only] if only else list(range(len(qs)))
+        idx = [i for i in idx if 0 <= i < len(qs)]
+        answers = body.get("answers") or []
+        sub_q = [qs[i] for i in idx]
+        res = grade_test(sub_q, [answers[k] if k < len(answers) else "" for k in range(len(idx))])
+        results = [dict(r, index=i) for i, r in zip(idx, res)]
+        # 元になったカードの成績に反映 (まちがいは復習へ)
+        card_ok = {}
+        for i, r in zip(idx, res):
+            cid = int(qs[i].get("card_id") or 0)
+            if cid:
+                card_ok[cid] = card_ok.get(cid, True) and r["ok"]
+        if card_ok:
+            exist = {c["id"] for c in s.get_cards(list(card_ok))}
+            old = {int(p["card_id"]): p for p in s.get_progress_many([c for c in card_ok if c in exist])}
+            rows = []
+            for cid, ok in card_ok.items():
+                if cid not in exist:
+                    continue
+                row = apply_answer(old.get(cid), ok, "normal")
+                row["card_id"] = cid
+                rows.append({k: row.get(k) for k in ("card_id", "correct_count", "wrong_count", "last_result", "last_answered_at",
+                                                      "in_review", "review_streak", "next_due_at")})
+            s.save_progress_many(rows)
+        att = s.add_attempt({
+            "test_id": int(t["id"]), "profile_id": int(t["profile_id"]),
+            "answers": [r["given"] for r in res], "results": results,
+            "score": sum(1 for r in res if r["ok"]), "total": len(res),
+            "started_at": body.get("started_at"), "finished_at": iso(now_utc()),
+        })
+        return {"attempt": att}
 
     if action == "reorder":
         deck, cards = s.get_deck(body["deck_id"])

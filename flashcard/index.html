@@ -82,6 +82,8 @@ textarea.t{min-height:84px;resize:vertical}
 .deck{display:block;width:100%;text-align:left;border:0;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px}
 .folder{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:0;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px}
 .folder .fi{font-size:30px;line-height:1}
+.fprev{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.fprev span{background:var(--chip);border-radius:6px;padding:1px 8px;font-size:12px;color:#3b4459;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .folder b{font-size:17px}
 .crumbs{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:0 0 10px}
 .crumb{border:0;background:var(--chip);border-radius:999px;padding:5px 12px;font-size:14px;font-weight:700;color:var(--navy)}
@@ -323,6 +325,13 @@ function deckCardHtml(d,newestId,showPath){
     <div class="bar"><i style="width:${pct}%"></i></div>
   </button>`;
 }
+// フォルダの中身(下の階層のフォルダ名、いちばん下なら教材名)を開かずに見せる
+function folderPreview(list){
+  const lv=S.folder.length+1, key=lv<LEVELS.length?LEVELS[lv][0]:null;
+  const names=key?[...new Set(list.map(d=>d[key]||UNSET))].map(n=>'📁'+n):list.map(d=>d.title);
+  const shown=names.slice(0,6);
+  return `<span class="fprev">${shown.map(n=>`<span>${esc(n)}</span>`).join('')}${names.length>shown.length?`<span>ほか${names.length-shown.length}</span>`:''}</span>`;
+}
 function openFolder(i){S.folder=S.folder.slice(0,i);drawDecks()}
 function enterFolder(name){S.folder.push(name);drawDecks()}
 function drawDecks(){
@@ -356,11 +365,13 @@ function drawDecks(){
         const hasNew=list.some(d=>d.id===newestId||daysAgo(d.created_at)<3);
         return `<button class="folder" onclick="enterFolder(${esc(JSON.stringify(name))})">
           <span class="fi">📁</span><span class="grow"><b>${esc(name)}</b> ${hasNew?'<span class="chip new">NEW</span>':''}<br>
-          <span class="muted small">教材 ${list.length}つ ・ カード ${c}枚 ・ 覚えた ${m}枚${rv?` ・ <span style="color:var(--ng)">復習 ${rv}</span>`:''}</span></span>
+          <span class="muted small">教材 ${list.length}つ ・ カード ${c}枚 ・ 覚えた ${m}枚${rv?` ・ <span style="color:var(--ng)">復習 ${rv}</span>`:''}</span>
+          ${folderPreview(list)}</span>
           <span class="muted" style="font-size:22px">›</span></button>`}).join('');
     }else{
       body+=inHere.map(d=>deckCardHtml(d,newestId,false)).join('');
     }
+    if(S.folder.length) body+=`<button class="btn navy block" style="margin-top:6px" onclick="openTestMaker(${esc(JSON.stringify(inHere.map(d=>d.id)))})">📝 このフォルダの教材でテストを作る</button>`;
   }
   setView(`
     <div class="stats">
@@ -399,6 +410,7 @@ function drawDeck(){
         <button class="btn sm" onclick="addCard()">＋ カード追加</button>
         ${d.source_text?`<button class="btn sm" onclick="showSource()">📄 読み取った内容</button>`:''}
         ${d.source_text?`<button class="btn sm" onclick="reorderDeck()">🔢 並び順を直す</button>`:''}
+        <button class="btn sm navy" onclick="openTestMaker([${d.id}])">📝 テストを作る</button>
       </div>
     </div>
 
@@ -698,10 +710,142 @@ function startReview(onlyDue){
   startStudy(shuffle(l),{mode:'review',title:'復習',rec:{profile_id:S.profile.id,deck_id:null,deck_title:'復習フラッシュ',subject:S.revSub||''},back:renderReview});
 }
 
+// ------------------------------------------------------------ テスト
+const TEST_TYPES=[['choice','4択'],['short','一問一答'],['tf','○×'],['written','記述']];
+async function openTestMaker(ids){
+  if(!S.decks||!S.decks.length||S.decks[0].profile_id!==S.profile.id){ try{ S.decks=(await api('list_decks',{profile_id:S.profile.id})).decks }catch(e){ return toast(e.message) } }
+  const pre=new Set(ids||[]), tm=S.tm=S.tm||{count:20,types:['choice','short'],model:'opus'};
+  const groups={}; S.decks.forEach(d=>{const k=[d.grade,d.term,d.subject].filter(Boolean).join(' › ')||'未設定';(groups[k]=groups[k]||[]).push(d)});
+  modal(`<h3>📝 テストを作る</h3>
+    <p class="muted small">フラッシュカードと教材の内容から、AIが本番に近い試験問題を作ります。作っている間もほかの画面を使えます。</p>
+    <label class="f">範囲にする教材（いくつでも）</label>
+    <div style="max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px">
+      ${Object.entries(groups).map(([k,ds])=>`<div class="muted small" style="margin-top:6px">📁 ${esc(k)}</div>`+ds.map(d=>`<label class="row small" style="padding:4px 0"><input type="checkbox" class="tmDeck" value="${d.id}" ${pre.has(d.id)?'checked':''}> ${esc(d.title)} <span class="muted">（${d.card_count}枚）</span></label>`).join('')).join('')}
+    </div>
+    <label class="f">問題数</label>
+    <div class="seg">${[10,20,30,40].map(n=>`<button class="${tm.count===n?'on':''}" onclick="S.tm.count=${n};this.parentNode.querySelectorAll('button').forEach(b=>b.classList.remove('on'));this.classList.add('on')">${n}問</button>`).join('')}</div>
+    <label class="f">問題の形式（いくつでも）</label>
+    <div class="row">${TEST_TYPES.map(([k,t])=>`<label class="row small" style="margin-right:10px"><input type="checkbox" class="tmType" value="${k}" ${tm.types.includes(k)?'checked':''}> ${t}</label>`).join('')}</div>
+    <label class="f">AIの種類</label>
+    <div class="seg"><button class="${tm.model==='opus'?'on':''}" onclick="S.tm.model='opus';this.nextElementSibling.classList.remove('on');this.classList.add('on')">Opus（かしこい）</button><button class="${tm.model==='sonnet'?'on':''}" onclick="S.tm.model='sonnet';this.previousElementSibling.classList.remove('on');this.classList.add('on')">Sonnet（安い・速い）</button></div>
+    <label class="f">テストの名前（空ならAIが付けます）</label><input class="t" id="tmTitle" placeholder="例：2学期期末 歴史 予想テスト">
+    <label class="f">AIへの注文（なくてもOK）</label><textarea class="t" id="tmOrder" style="min-height:60px" placeholder="例：年号を聞く問題を多めに／記述は2問だけ"></textarea>
+    <div class="row" style="margin-top:14px"><button class="btn ghost grow" onclick="closeModal()">やめる</button><button class="btn primary grow" onclick="startTestJob()">📝 テストを作る</button></div>`);
+}
+function startTestJob(){
+  const ids=[...document.querySelectorAll('.tmDeck:checked')].map(x=>+x.value);
+  const types=[...document.querySelectorAll('.tmType:checked')].map(x=>x.value);
+  if(!ids.length) return toast('範囲にする教材を選んでください');
+  if(!types.length) return toast('問題の形式を選んでください');
+  const tm=S.tm; tm.types=types;
+  const title=$('#tmTitle').value.trim(), order=$('#tmOrder').value;
+  closeModal();
+  const j={id:++jobSeq,kind:'test',label:title||'テスト',profileId:S.profile.id,profileName:S.profile.name,useText:true,step:'gen',sec:0,genStart:0,
+    startedAt:Date.now(),modelLabel:tm.model==='sonnet'?'Sonnet':'Opus',genExpect:Math.round((tm.model==='sonnet'?20:35)+tm.count*(tm.model==='sonnet'?1.2:2))};
+  S.jobs.unshift(j); drawJobs(); keepAwake(true);
+  toast('テストを作り始めました。ほかの画面を使っていて大丈夫です',3500);
+  (async()=>{
+    try{ const r=await api('create_test',{profile_id:j.profileId,deck_ids:ids,count:tm.count,types,model:tm.model,title,instructions:order});
+      j.step='done'; j.testId=r.test_id; j.cardCount=r.count; j.label=r.title; toast(`✅「${r.title}」${r.count}問のテストができました！`,4000);
+    }catch(e){ j.step='error'; j.error=e.message }
+    if(!S.jobs.some(x=>!['done','error'].includes(x.step))) keepAwake(false);
+    drawJobs();
+  })();
+}
+// テストを開く (受ける・過去の結果)
+async function openTest(id){
+  loading();
+  try{ const r=await api('get_test',{test_id:id}); S.test=r.test; S.testAtts=r.attempts }catch(e){ toast(e.message); return showTab('history') }
+  const t=S.test, A=S.testAtts;
+  setView(`<p><button class="btn ghost sm" onclick="S.histView='test';showTab('history')">‹ テスト一覧</button></p>
+    <div class="card">
+      <div class="chips">${t.subject?`<span class="chip">${esc(t.subject)}</span>`:''}<span class="chip">${t.questions.length}問</span>${t.memo?`<span class="chip">${esc(t.memo)}</span>`:''}</div>
+      <h2 style="margin:8px 0 4px">📝 ${esc(t.title)}</h2>
+      <div class="muted small">${fmtDate(t.created_at)} 作成 ・ 受けた回数 ${A.length}回</div>
+      <button class="btn primary block" style="margin-top:12px;font-size:18px" onclick="takeTest()">${A.length?'もう一度受ける':'テストを受ける'}</button>
+      ${A.length&&A[0].results.some(r=>!r.ok)?`<button class="btn block" style="margin-top:8px" onclick="takeTest(${esc(JSON.stringify(A[0].results.filter(r=>!r.ok).map(r=>r.index)))})">前回まちがえた${A[0].results.filter(r=>!r.ok).length}問だけ解き直す</button>`:''}
+    </div>
+    ${A.length?`<div class="card"><h3>これまでの結果</h3><ul class="qlist">${A.map((a,k)=>{const pct=a.total?Math.round(a.score/a.total*100):0;const d=new Date(a.finished_at);return `<li><div class="grow">
+      <div class="row"><b class="grow">${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}${a.total<t.questions.length?'（解き直し）':''}</b><span class="chip ${pct>=80?'ok':pct<50?'rev':''}">${a.score}/${a.total}（${pct}%）</span></div>
+      <button class="btn sm ghost" style="margin-top:6px" onclick="showAttempt(${k})">答えとまちがいを見る</button></div></li>`}).join('')}</ul></div>`:''}
+    <p class="center"><button class="btn danger sm" onclick="deleteTest()">このテストを削除</button></p>`);
+}
+function takeTest(only){
+  const t=S.test, idx=only&&only.length?only:t.questions.map((_,i)=>i);
+  ST=null; S.taking={idx,answers:idx.map(()=>''),startedAt:new Date().toISOString(),only:only&&only.length?only:null};
+  document.body.style.overflow='hidden';
+  drawTaking();
+}
+function drawTaking(){
+  const t=S.test, tk=S.taking;
+  $('#studyRoot').innerHTML=`<div class="study" style="overflow:auto;display:block">
+    <div class="head" style="position:sticky;top:0;background:var(--bg);z-index:2"><button class="btn sm ghost" onclick="quitTaking()">✕</button><b class="grow">📝 ${esc(t.title)}</b><span class="muted small" id="tkCount"></span></div>
+    <div class="wrap" style="padding-bottom:40px">
+    ${tk.idx.map((qi,k)=>{const q=t.questions[qi];const typ=(TEST_TYPES.find(x=>x[0]===q.type)||['',''])[1];return `<div class="card">
+      <div class="muted small">問${k+1} ・ ${typ}</div><div style="font-size:17px;font-weight:700;margin:6px 0 10px;white-space:pre-wrap">${esc(q.question)}</div>
+      ${q.type==='choice'||q.type==='tf'?`<div style="display:grid;gap:8px;${q.type==='tf'?'grid-template-columns:1fr 1fr':''}">${q.choices.map(c=>`<button class="btn ${tk.answers[k]===c?'navy':'ghost'}" style="text-align:left;${q.type==='tf'?'text-align:center;font-size:22px':''}" onclick="S.taking.answers[${k}]=${esc(JSON.stringify(c))};drawTaking()">${esc(c)}</button>`).join('')}</div>`
+        :q.type==='written'?`<textarea class="t" oninput="S.taking.answers[${k}]=this.value;tkCount()" placeholder="ここに書く">${esc(tk.answers[k])}</textarea>`
+        :`<input class="t" oninput="S.taking.answers[${k}]=this.value;tkCount()" placeholder="答え" value="${esc(tk.answers[k])}">`}
+    </div>`}).join('')}
+    <button class="btn primary block" style="font-size:18px;padding:16px" onclick="submitTest()">採点する</button>
+    </div></div>`;
+  tkCount();
+}
+function tkCount(){const tk=S.taking,el=$('#tkCount');if(el)el.textContent=`${tk.answers.filter(a=>String(a).trim()).length}/${tk.idx.length} 回答`}
+function quitTaking(){if(!confirm('テストをやめますか？（答えは保存されません）'))return;S.taking=null;$('#studyRoot').innerHTML='';document.body.style.overflow=''}
+async function submitTest(){
+  const tk=S.taking, blank=tk.answers.filter(a=>!String(a).trim()).length;
+  if(blank&&!confirm(`まだ答えていない問題が${blank}問あります。このまま採点しますか？`)) return;
+  $('#studyRoot').innerHTML=`<div class="study"><div class="flash" style="justify-content:center;text-align:center"><p><span class="spinner"></span> 採点しています…</p><p class="muted small">一問一答・記述はAIが採点します（10〜30秒）</p></div></div>`;
+  try{
+    const r=await api('submit_test',{test_id:S.test.id,answers:tk.answers,only:tk.only,started_at:tk.startedAt});
+    S.taking=null; S.testAtts.unshift(r.attempt); drawAttempt(r.attempt,true);
+  }catch(e){ toast(e.message,5000); drawTaking() }
+}
+function showAttempt(k){document.body.style.overflow='hidden';drawAttempt(S.testAtts[k],false)}
+function drawAttempt(a,fresh){
+  const t=S.test, pct=a.total?Math.round(a.score/a.total*100):0, wrong=a.results.filter(r=>!r.ok);
+  $('#studyRoot').innerHTML=`<div class="study" style="overflow:auto;display:block">
+    <div class="head" style="position:sticky;top:0;background:var(--bg);z-index:2"><button class="btn sm ghost" onclick="closeAttempt()">✕</button><b class="grow">📝 ${esc(t.title)} の結果</b></div>
+    <div class="wrap" style="padding-bottom:40px">
+      <div class="card result"><div style="font-size:40px">${pct===100?'🎉':pct>=70?'👏':'💪'}</div><div class="big">${a.score} / ${a.total}</div><div class="muted">正解率 ${pct}%</div>
+        ${fresh&&wrong.length?`<p class="small">まちがえた問題の元のカードは「🔁 復習」に入りました。</p>`:''}
+        <div style="display:grid;gap:8px;margin-top:10px">
+          ${wrong.length?`<button class="btn primary block" onclick="takeTest(${esc(JSON.stringify(wrong.map(r=>r.index)))})">まちがえた${wrong.length}問だけ解き直す</button>`:''}
+          <button class="btn block" onclick="closeAttempt()">閉じる</button></div></div>
+      ${a.results.map((r,k)=>{const q=t.questions[r.index]||{};return `<div class="card" style="border-left:6px solid ${r.ok?'var(--ok)':'var(--ng)'}">
+        <div class="row"><b style="font-size:22px;color:${r.ok?'var(--ok)':'var(--ng)'}">${r.ok?'○':'✕'}</b><span class="muted small grow">問${r.index+1}</span></div>
+        <div style="font-weight:700;margin:4px 0 8px;white-space:pre-wrap">${esc(q.question)}</div>
+        <div class="small">あなたの答え：<b>${esc(r.given||'（未回答）')}</b></div>
+        ${!r.ok||q.type==='written'?`<div class="small" style="margin-top:4px">正解：<b style="color:var(--navy)">${esc(q.answer)}</b></div>`:''}
+        ${r.comment&&r.comment!=='未回答'?`<div class="small" style="margin-top:6px;background:var(--accent-soft);border-radius:8px;padding:6px 8px">🧑‍🏫 ${esc(r.comment)}</div>`:''}
+        ${q.explanation?`<div class="note small" style="margin-top:6px">💡 ${esc(q.explanation)}</div>`:''}
+      </div>`}).join('')}
+    </div></div>`;
+}
+function closeAttempt(){$('#studyRoot').innerHTML='';document.body.style.overflow='';openTest(S.test.id)}
+async function deleteTest(){
+  if(!confirm(`「${S.test.title}」と、これまでの結果を削除します。よろしいですか？`)) return;
+  try{ await api('delete_test',{test_id:S.test.id}); toast('削除しました'); S.histView='test'; showTab('history') }catch(e){toast(e.message)}
+}
+async function renderTestList(){
+  let ts=[]; try{ ts=(await api('list_tests',{profile_id:S.profile.id})).tests }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
+  setView(histSeg()+`<button class="btn navy block" style="margin-bottom:12px" onclick="openTestMaker([])">📝 新しくテストを作る</button>
+    ${ts.length?ts.map(t=>{const l=t.last,b=t.best;const lp=l&&l.total?Math.round(l.score/l.total*100):null;return `<button class="deck" onclick="openTest(${t.id})">
+      <div class="chips">${t.subject?`<span class="chip">${esc(t.subject)}</span>`:''}${l?`<span class="chip ${lp>=80?'ok':lp<50?'rev':''}">前回 ${l.score}/${l.total}</span>`:'<span class="chip new">まだ受けていない</span>'}</div>
+      <div class="tt">📝 ${esc(t.title)}</div>
+      <div class="muted small">${fmtDate(t.created_at)} 作成 ・ 受けた回数 ${t.attempts}回${b?` ・ 最高 ${b.score}/${b.total}`:''}</div></button>`}).join('')
+    :'<div class="card center"><p>まだテストがありません。<br>教材を開いて「📝 テストを作る」を押すと作れます。</p></div>'}`);
+}
+function histSeg(){return `<h2>📈 ${esc(S.profile.name)}の記録</h2><div class="seg" style="margin-bottom:12px">
+  <button class="${S.histView!=='test'?'on':''}" onclick="S.histView='study';renderHistory()">学習の記録</button>
+  <button class="${S.histView==='test'?'on':''}" onclick="S.histView='test';renderHistory()">📝 テスト</button></div>`}
+
 // ------------------------------------------------------------ 学習の記録
 function dayKey(d){d=new Date(d);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 async function renderHistory(){
   loading();
+  if(S.histView==='test') return renderTestList();
   let ss=[]; try{ ss=(await api('history',{profile_id:S.profile.id})).sessions }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
   S.hist=ss;
   const byDay={}; ss.forEach(x=>{const k=dayKey(x.finished_at);(byDay[k]=byDay[k]||{n:0,ok:0,list:[]});byDay[k].n+=x.total;byDay[k].ok+=x.correct;byDay[k].list.push(x)});
@@ -711,7 +855,7 @@ async function renderHistory(){
   const tot=ss.reduce((s,x)=>s+x.total,0), okAll=ss.reduce((s,x)=>s+x.correct,0);
   const days=[...Array(14)].map((_,k)=>{const d=new Date(t);d.setDate(t.getDate()-13+k);const v=byDay[dayKey(d)];return {d,n:v?v.n:0,ok:v?v.ok:0}});
   const mx=Math.max(10,...days.map(x=>x.n));
-  setView(`<h2>📈 ${esc(S.profile.name)}の学習の記録</h2>
+  setView(histSeg()+`
     <div class="stats">
       <div class="stat"><b>${streak}</b><span>連続日数</span></div>
       <div class="stat"><b>${week}</b><span>この7日で解いた数</span></div>
@@ -859,7 +1003,8 @@ function jobPct(j){
   pct=Math.max(j.lastPct||0,Math.round(pct)); j.lastPct=pct; return pct;
 }
 function jobStatusText(j){
-  if(j.step==='done') return `✅ ${j.cardCount}枚できました`;
+  if(j.step==='done') return j.kind==='test'?`✅ ${j.cardCount}問のテストができました`:`✅ ${j.cardCount}枚できました`;
+  if(j.kind==='test'&&j.step==='gen'){const left=Math.round((j.genExpect||60)-(j.sec-(j.genStart||0)));return `AIがテスト問題を考え中（${j.modelLabel}）・${left>5?'あと約'+left+'秒':'もう少し'}`}
   if(j.step==='error') return `⚠️ ${j.error}`;
   if(j.step==='prep') return '写真・PDFを準備中';
   if(j.step==='read') return `教材を読み取り中（${j.readPages||0}/${j.pageCount||0}ページ）`;
@@ -872,7 +1017,7 @@ function jobCardHtml(j){
     <div class="row"><b class="grow">${esc(j.label)}</b><span class="muted small">${esc(j.profileName)} ・ ${mm?mm+'分':''}${ss}秒</span></div>
     <div class="row" style="margin-top:6px"><div class="bar grow" style="height:10px;margin:0"><i style="width:${pct}%;background:${j.step==='error'?'var(--ng)':j.step==='done'?'var(--ok)':'var(--accent)'}"></i></div><b style="width:44px;text-align:right">${pct}%</b></div>
     <div class="small" style="margin-top:6px">${esc(jobStatusText(j))}</div>
-    ${j.step==='done'?`<div class="row" style="margin-top:8px"><button class="btn primary sm" onclick="openJobDeck(${j.id})">問題の一覧を見る</button><button class="btn sm ghost" onclick="dismissJob(${j.id})">閉じる</button></div>`:''}
+    ${j.step==='done'?`<div class="row" style="margin-top:8px"><button class="btn primary sm" onclick="openJobDeck(${j.id})">${j.kind==='test'?'テストを受ける':'問題の一覧を見る'}</button><button class="btn sm ghost" onclick="dismissJob(${j.id})">閉じる</button></div>`:''}
     ${j.step==='error'?`<div class="row" style="margin-top:8px"><button class="btn sm" onclick="retryJob(${j.id})">入力にもどす</button><button class="btn sm ghost" onclick="dismissJob(${j.id})">閉じる</button></div>`:''}
   </div>`;
 }
@@ -884,7 +1029,7 @@ function drawJobs(){
     const running=act.filter(j=>!['done','error'].includes(j.step)), done=act.filter(j=>j.step==='done'), err=act.filter(j=>j.step==='error');
     let t='';
     if(running.length){const j=running[0];t=`✨ ${esc(j.label)} を作成中 ${jobPct(j)}%${running.length>1?` ほか${running.length-1}件`:''}`}
-    else if(done.length) t=`✅ ${esc(done[0].label)}：${done[0].cardCount}枚できました！`;
+    else if(done.length) t=`✅ ${esc(done[0].label)}：${done[0].cardCount}${done[0].kind==='test'?'問のテストが':'枚'}できました！`;
     else if(err.length) t=`⚠️ 作成できなかった教材があります`;
     bar.innerHTML=`<div class="wrap"><button onclick="showTab('make')">${t}<span>見る ›</span></button></div>`;
     bar.classList.remove('hidden');
@@ -892,7 +1037,7 @@ function drawJobs(){
   const box=$('#jobList'); if(box) box.innerHTML=act.length?`<h3 style="margin:0 0 8px">作成中・できた教材</h3>${act.map(jobCardHtml).join('')}`:'';
 }
 setInterval(()=>{let any=false;for(const j of S.jobs){if(!['done','error'].includes(j.step)){j.sec++;any=true}}if(any||S.jobs.length)drawJobs()},1000);
-function openJobDeck(id){const j=S.jobs.find(x=>x.id===id);dismissJob(id);if(j&&S.profile&&j.profileId!==S.profile.id){enterProfile(j.profileId)}openDeck(j.deckId)}
+function openJobDeck(id){const j=S.jobs.find(x=>x.id===id);dismissJob(id);if(!j)return;if(S.profile&&j.profileId!==S.profile.id){enterProfile(j.profileId)}if(j.kind==='test')openTest(j.testId);else openDeck(j.deckId)}
 function dismissJob(id){S.jobs=S.jobs.filter(j=>j.id!==id);drawJobs()}
 function retryJob(id){const j=S.jobs.find(x=>x.id===id);dismissJob(id);if(j){S.make=j.form;S.make.running=false;showTab('make')}}
 let wakeLock=null;
