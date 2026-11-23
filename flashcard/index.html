@@ -314,7 +314,7 @@ function deckCardHtml(d,newestId,showPath){
       ${showPath?`${d.grade?`<span class="chip">${esc(d.grade)}</span>`:''}${d.term?`<span class="chip">${esc(d.term)}</span>`:''}${d.subject?`<span class="chip">${esc(d.subject)}</span>`:''}`:''}
       ${st.in_review?`<span class="chip rev">復習 ${st.in_review}</span>`:''}</div>
     <div class="tt">${esc(d.title)}</div>
-    <div class="muted small">${d.card_kind==='word'?'単語型':'問題型'} ・ カード ${d.card_count}枚 ・ 覚えた ${st.mastered}枚 ・ ${fmtDate(d.created_at)}</div>
+    <div class="muted small">${d.card_kind==='word'?'単語型':'問題型'} ・ カード ${d.card_count}枚 ・ 覚えた ${st.mastered}枚 ・ ${fmtDate(d.created_at)}${d.memo?' ・ '+esc(d.memo):''}</div>
     <div class="bar"><i style="width:${pct}%"></i></div>
   </button>`;
 }
@@ -386,7 +386,7 @@ function drawDeck(){
     <div class="card">
       <div class="chips">${d.subject?`<span class="chip">${esc(d.subject)}</span>`:''}${d.grade?`<span class="chip">${esc(d.grade)}</span>`:''}${d.term?`<span class="chip">${esc(d.term)}</span>`:''}<span class="chip">${word?'単語型':'問題型'}</span></div>
       <h2 style="margin:8px 0 4px">${esc(d.title)}</h2>
-      <div class="muted small">カード ${C.length}枚 ・ 覚えた ${mastered}枚 ・ ${fmtDate(d.created_at)} 登録</div>
+      <div class="muted small">カード ${C.length}枚 ・ 覚えた ${mastered}枚 ・ ${fmtDate(d.created_at)} 登録${d.memo?' ・ '+esc(d.memo):''}</div>
       <div class="row" style="margin-top:10px">
         <button class="btn sm" onclick="editDeck()">✏️ 教材の情報</button>
         <button class="btn sm" onclick="addCard()">＋ カード追加</button>
@@ -653,6 +653,9 @@ function renderMake(){
       ${STYLES.map(([k,t,d])=>`<label class="style-opt ${m.style===k?'on':''}"><input type="radio" name="sty" value="${k}" ${m.style===k?'checked':''} onchange="mkSave();S.make.style='${k}';renderMake()"><b>${t}</b><span class="muted small">${d}</span></label>`).join('')}
       ${['auto','predict'].includes(m.style)?`<label class="row small" style="margin-top:6px"><input type="checkbox" id="mkW" ${m.written?'checked':''}> 記述問題（説明しよう系）も入れる</label>`:''}
       ${['auto','word'].includes(m.style)?`<label class="row small" style="margin-top:6px"><input type="checkbox" id="mkR" ${m.related?'checked':''}> 関連語・類義語も別のカードにする（単語型）</label>`:''}
+      <label class="f">AIの種類</label>
+      <div class="seg"><button class="${(m.model||'opus')==='opus'?'on':''}" onclick="mkSave();S.make.model='opus';renderMake()">Opus（かしこい）</button><button class="${m.model==='sonnet'?'on':''}" onclick="mkSave();S.make.model='sonnet';renderMake()">Sonnet（安い・速い）</button></div>
+      <p class="muted small" style="margin:4px 0 0">どちらも「中エフォート」で作ります。Sonnetは料金がOpusの約半分です。</p>
       <label class="f">枚数</label>
       <select class="t" id="mkC">${[['auto','おまかせ（重要なところは全部）'],['10','10枚くらい'],['20','20枚くらい'],['30','30枚くらい'],['50','50枚くらい'],['80','80枚くらい']].map(([v,t])=>`<option value="${v}" ${String(m.count||'auto')===v?'selected':''}>${t}</option>`).join('')}</select>
     </div>
@@ -757,18 +760,18 @@ async function runMake(){
       const texts=[]; let off=0;
       for(let i=0;i<batches.length;i++){
         m.readMsg=`(${i+1}/${batches.length})`; m.msg=`${pages.length}ページを読み取っています`;
-        const r=await api('transcribe',{images:batches[i],page_offset:off}); texts.push(r.text); off+=batches[i].length;
+        const r=await api('transcribe',{images:batches[i],page_offset:off,model:m.model||'opus'}); texts.push(r.text); off+=batches[i].length;
       }
       source=texts.join('\n\n'); done('read');
     }
     // 3) 問題づくり
     m.step='gen'; m.msg='問題を考えています…';
     const g=await api('generate',{source_text:source,style:m.style,grade:m.grade,term:m.term,subject:m.subject,count:m.count||'auto',
-      include_written:!!m.written,include_related:!!m.related,instructions:m.order||''});
+      include_written:!!m.written,include_related:!!m.related,instructions:m.order||'',model:m.model||'opus'});
     done('gen');
     // 4) 保存
     m.step='save'; m.msg=`${g.cards.length}枚できました。保存しています…`;
-    const sv=await api('create_deck',{profile_id:S.profile.id,title:(m.title||'').trim()||g.title,grade:m.grade,term:m.term,subject:m.subject,card_kind:g.card_kind,source_text:source,cards:g.cards});
+    const sv=await api('create_deck',{profile_id:S.profile.id,title:(m.title||'').trim()||g.title,grade:m.grade,term:m.term,subject:m.subject,card_kind:g.card_kind,source_text:source,cards:g.cards,memo:g.model_label?('AI: '+g.model_label):''});
     done('save'); clearInterval(timer);
     S.make=null;
     setView(`<div class="card result"><div style="font-size:48px">🎉</div>

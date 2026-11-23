@@ -22,6 +22,13 @@ SUPABASE_KEY = os.environ.get(
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnd3lkdG93aXJwamVrbXNreGd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNTc5OTcsImV4cCI6MjEwMjkzMzk5N30.T6xwm4_5Pur_t7srRx3ND4tolwus698ZnatENDOPeqo",
 )
 MODEL = os.environ.get("FLASH_MODEL", "claude-opus-5-5")
+# 画面で選べる AI (どちらも「中エフォート」で問題を作り、読み取りは「低エフォート」)
+MODELS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5"}
+MODEL_LABEL = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5"}
+
+
+def pick_model(key):
+    return MODELS.get(key or "", MODEL)
 MOCK = os.environ.get("FLASH_MOCK") == "1"  # ローカル確認用 (DB も AI も使わない)
 
 # 復習フラッシュ: 連続正解の回数 -> 次に出すまでの日数。3回連続正解で卒業。
@@ -468,19 +475,19 @@ def anthropic_client():
     return anthropic.Anthropic(max_retries=2)
 
 
-def claude_call(content, effort, schema=None, max_tokens=32000):
+def claude_call(content, effort, schema=None, max_tokens=32000, model=None):
     """Claude を呼んで最終テキストを返す (長くなるので stream で受け取る)。"""
     import anthropic
     client = anthropic_client()
     kwargs = dict(
-        model=MODEL,
+        model=model or MODEL,
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": content}],
         output_config={"effort": effort},
     )
     if schema:
         kwargs["output_config"]["format"] = {"type": "json_schema", "schema": schema}
-    if MODEL in ("claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5"):
+    if kwargs["model"] in ("claude-opus-5-5", "claude-fable-5-2", "claude-sonnet-5-5"):
         kwargs["betas"] = ["server-side-fallback-2026-07-01"]
         kwargs["fallbacks"] = "default"
         stream_fn = client.beta.messages.stream
@@ -504,7 +511,7 @@ def claude_call(content, effort, schema=None, max_tokens=32000):
     return "".join(b.text for b in msg.content if b.type == "text")
 
 
-def ai_transcribe(images, page_offset):
+def ai_transcribe(images, page_offset, model=None):
     if MOCK:
         return "\n".join(f"=== ページ {page_offset + i + 1} ===\n(お試しモード: 文字起こしの代わり)\n1. 江戸幕府を開いた人物は誰か。 → 徳川家康\n2. 8代将軍が行った改革は何か。 → 享保の改革"
                          for i in range(len(images)))
@@ -515,7 +522,7 @@ def ai_transcribe(images, page_offset):
             raise ApiError("画像の形式が読み取れません")
         content.append({"type": "image", "source": {"type": "base64", "media_type": m.group(1), "data": m.group(2)}})
     content.append({"type": "text", "text": TRANSCRIBE_PROMPT + f"\n\n(このまとまりは全体の {page_offset + 1} ページ目からです)"})
-    return claude_call(content, "low", max_tokens=32000).strip()
+    return claude_call(content, "low", max_tokens=32000, model=model).strip()
 
 
 def ai_generate(opts):
@@ -526,7 +533,8 @@ def ai_generate(opts):
             {"question": "老中松平定信による改革を何というか。", "answer": "寛政の改革", "note": "かんせい", "example": "", "tag": "1787年"},
         ]
         return {"title": "お試し教材", "card_kind": "qa", "cards": cards}
-    text = claude_call(build_generate_prompt(opts), "medium", schema=GENERATE_SCHEMA, max_tokens=64000)
+    text = claude_call(build_generate_prompt(opts), "medium", schema=GENERATE_SCHEMA, max_tokens=64000,
+                       model=pick_model(opts.get("model")))
     data = json.loads(text)
     data["cards"] = [clean_card(c) for c in data.get("cards", []) if c.get("question") and c.get("answer")]
     if not data["cards"]:
@@ -672,12 +680,14 @@ def handle(action, body, passcode):
         images = body.get("images") or []
         if not images:
             raise ApiError("画像がありません")
-        return {"text": ai_transcribe(images, int(body.get("page_offset", 0)))}
+        return {"text": ai_transcribe(images, int(body.get("page_offset", 0)), pick_model(body.get("model")))}
 
     if action == "generate":
         if not (body.get("source_text") or "").strip():
             raise ApiError("教材の内容が空です")
-        return ai_generate(body)
+        data = ai_generate(body)
+        data["model_label"] = MODEL_LABEL.get(pick_model(body.get("model")), "")
+        return data
 
     if action == "create_deck":
         deck = {k: str(body.get(k) or "") for k in ("title", "grade", "term", "subject", "source_text", "memo")}
