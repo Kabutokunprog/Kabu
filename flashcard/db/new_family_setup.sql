@@ -84,7 +84,36 @@ create table if not exists public.flash_sessions (
   started_at timestamptz,
   finished_at timestamptz not null default now()
 );
+alter table public.flash_sessions add column if not exists answer_mode text not null default 'flip';
 create index if not exists flash_sessions_profile on public.flash_sessions(profile_id, finished_at desc);
+
+-- 1問ずつの記録 (科目ごとの成長グラフ用)
+create table if not exists public.flash_answers (
+  id bigint generated always as identity primary key,
+  profile_id bigint not null references public.flash_profiles(id) on delete cascade,
+  card_id bigint references public.flash_cards(id) on delete set null,
+  deck_id bigint references public.flash_decks(id) on delete set null,
+  subject text not null default '',
+  correct boolean not null,
+  ans_mode text not null default 'flip',
+  study_mode text not null default 'normal',
+  attempt_no int not null default 1,
+  answered_at timestamptz not null default now()
+);
+create index if not exists flash_answers_profile on public.flash_answers(profile_id, answered_at);
+
+create or replace function public.flash_growth(pid bigint) returns json
+language sql stable set search_path = public as $$
+  select json_build_object(
+    'daily', (select coalesce(json_agg(x order by x.d), '[]'::json) from (
+        select subject, ans_mode, (answered_at at time zone 'Asia/Tokyo')::date as d, count(*) as n, count(*) filter (where correct) as ok
+        from public.flash_answers where profile_id = pid group by 1, 2, 3) x),
+    'attempts', (select coalesce(json_agg(y), '[]'::json) from (
+        select subject, ans_mode, least(attempt_no, 5) as a, count(*) as n, count(*) filter (where correct) as ok
+        from public.flash_answers where profile_id = pid group by 1, 2, 3) y),
+    'since', (select min(answered_at) from public.flash_answers where profile_id = pid)
+  );
+$$;
 
 -- テスト
 create table if not exists public.flash_tests (
@@ -191,6 +220,7 @@ alter table public.flash_tests enable row level security;
 alter table public.flash_test_attempts enable row level security;
 alter table public.flash_jobs enable row level security;
 alter table public.flash_job_pages enable row level security;
+alter table public.flash_answers enable row level security;
 revoke all on public.flash_members from anon, authenticated;
 
 create policy flash_profiles_family on public.flash_profiles for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
@@ -201,4 +231,5 @@ create policy flash_sessions_family on public.flash_sessions for all using ((sel
 create policy flash_tests_family on public.flash_tests for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
 create policy flash_test_attempts_family on public.flash_test_attempts for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
 create policy flash_jobs_family on public.flash_jobs for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
+create policy flash_answers_family on public.flash_answers for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
 create policy flash_job_pages_family on public.flash_job_pages for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);

@@ -248,6 +248,13 @@ class SupaStore:
     def add_session(self, row):
         self._req("POST", "flash_sessions", body=row, prefer="return=minimal")
 
+    def add_answers(self, rows):
+        if rows:
+            self._req("POST", "flash_answers", body=rows, prefer="return=minimal")
+
+    def growth(self, profile_id):
+        return self.rpc("flash_growth", {"pid": int(profile_id)})
+
     def list_sessions(self, profile_id, limit=300):
         return self._req("GET", "flash_sessions", {"profile_id": f"eq.{int(profile_id)}", "select": "*",
                                                    "order": "finished_at.desc", "limit": str(limit)})
@@ -559,6 +566,24 @@ class MemoryStore:
     def add_session(self, row):
         self._need()
         self.data.setdefault("sessions", []).append(dict(row, id=self._id()))
+
+    def add_answers(self, rows):
+        self._need()
+        self.data.setdefault("answers", []).extend(rows)
+
+    def growth(self, profile_id):
+        self._need()
+        rows = [r for r in self.data.get("answers", []) if r["profile_id"] == int(profile_id)]
+        daily, att = {}, {}
+        for r in rows:
+            d = (datetime.fromisoformat(r["answered_at"]) + timedelta(hours=9)).date().isoformat()
+            k = (r["subject"], r["ans_mode"], d)
+            daily.setdefault(k, [0, 0]); daily[k][0] += 1; daily[k][1] += 1 if r["correct"] else 0
+            k2 = (r["subject"], r["ans_mode"], min(r["attempt_no"], 5))
+            att.setdefault(k2, [0, 0]); att[k2][0] += 1; att[k2][1] += 1 if r["correct"] else 0
+        return {"daily": [{"subject": a, "ans_mode": b, "d": c, "n": v[0], "ok": v[1]} for (a, b, c), v in sorted(daily.items(), key=lambda x: x[0][2])],
+                "attempts": [{"subject": a, "ans_mode": b, "a": c, "n": v[0], "ok": v[1]} for (a, b, c), v in att.items()],
+                "since": min((r["answered_at"] for r in rows), default=None)}
 
     def list_sessions(self, profile_id, limit=300):
         self._need()
@@ -1181,6 +1206,20 @@ def handle(action, body, passcode):
                 rows.append({k: row[k] for k in ("card_id", "correct_count", "wrong_count", "last_result", "last_answered_at",
                                                    "in_review", "review_streak", "next_due_at")})
             s.save_progress_many(rows)
+            # 1問ずつの記録 (科目ごとの成長グラフ用): 何回目に解いたか・4択か自分で答えたか
+            ans_mode = "choice" if body.get("answer_mode") == "choice" else "flip"
+            deck_of = {int(c["id"]): c.get("deck_id") for c in s.get_cards(list(answers))}
+            subj = {}
+            for did in set(v for v in deck_of.values() if v):
+                subj[did] = (s.get_deck_row(did) or {}).get("subject") or "その他"
+            now_s = iso(now_utc())
+            s.add_answers([{
+                "profile_id": int(body["profile_id"]), "card_id": cid, "deck_id": deck_of.get(cid),
+                "subject": subj.get(deck_of.get(cid), "その他"), "correct": ok, "ans_mode": ans_mode,
+                "study_mode": "review" if mode == "review" else "normal",
+                "attempt_no": int((old.get(cid) or {}).get("correct_count") or 0) + int((old.get(cid) or {}).get("wrong_count") or 0) + 1,
+                "answered_at": now_s,
+            } for cid, ok in answers.items() if cid in deck_of])
             wrong = [w for w in (body.get("wrong_items") or [])][:100]
             s.add_session({
                 "profile_id": int(body["profile_id"]),
@@ -1188,6 +1227,7 @@ def handle(action, body, passcode):
                 "deck_title": str(body.get("deck_title") or "")[:200],
                 "subject": str(body.get("subject") or "")[:50],
                 "mode": "review" if mode == "review" else "normal",
+                "answer_mode": "choice" if body.get("answer_mode") == "choice" else "flip",
                 "total": len(answers),
                 "correct": sum(1 for v in answers.values() if v),
                 "wrong_items": [{"q": str(w.get("q", ""))[:300], "a": str(w.get("a", ""))[:300]} for w in wrong],
@@ -1198,6 +1238,20 @@ def handle(action, body, passcode):
 
     if action == "history":
         return {"sessions": s.list_sessions(body["profile_id"])}
+
+    if action == "mock_seed_answers" and MOCK:  # お試しモードでのグラフ確認用
+        s.add_answers(body.get("rows") or [])
+        return {"ok": True}
+
+    if action == "growth":
+        g = s.growth(body["profile_id"]) or {}
+        decks, prog = s.list_decks(body["profile_id"])
+        mastery = {}
+        for d in deck_stats(decks, prog):
+            m = mastery.setdefault(d.get("subject") or "その他", {"cards": 0, "mastered": 0})
+            m["cards"] += d["card_count"]
+            m["mastered"] += d["stats"]["mastered"]
+        return {"daily": g.get("daily") or [], "attempts": g.get("attempts") or [], "since": g.get("since"), "mastery": mastery}
 
     if action == "review_list":
         return {"cards": s.review_cards(body["profile_id"]), "now": iso(now_utc())}
