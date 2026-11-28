@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
 
 app = Flask(__name__)
 
@@ -178,12 +178,17 @@ class SupaStore:
             {"deck_id": (p.get("flash_cards") or {}).get("deck_id"), **{k: p[k] for k in ("correct_count", "wrong_count", "in_review")}}
             for p in prog]
 
+    def get_deck_row(self, deck_id):
+        rows = self._req("GET", "flash_decks", {"id": f"eq.{int(deck_id)}", "select": "id,title,subject,grade,term,card_kind,source_text"})
+        return rows[0] if rows else {}
+
     def get_deck(self, deck_id):
         rows = self._req("GET", "flash_decks", {"id": f"eq.{int(deck_id)}", "select": "*"})
         if not rows:
             raise ApiError("教材が見つかりません", 404)
         cards = self._req("GET", "flash_cards", {
-            "deck_id": f"eq.{int(deck_id)}", "select": "*,flash_progress(*)", "order": "position.asc,id.asc"})
+            "deck_id": f"eq.{int(deck_id)}", "order": "position.asc,id.asc",
+            "select": "id,deck_id,position,question,answer,note,example,tag,year,importance,needs_regen,created_at,updated_at,explain,explain_choices,flash_progress(*)"})
         for c in cards:
             p = c.pop("flash_progress", None)
             if isinstance(p, list):
@@ -393,6 +398,10 @@ class MemoryStore:
         prog = [{"deck_id": deck_of.get(cid), **{k: p[k] for k in ("correct_count", "wrong_count", "in_review")}}
                 for cid, p in self.data["progress"].items() if deck_of.get(cid) in my_ids]
         return decks, prog
+
+    def get_deck_row(self, deck_id):
+        self._need()
+        return dict(next((d for d in self.data["decks"] if d["id"] == int(deck_id)), {}))
 
     def get_deck(self, deck_id):
         self._need()
@@ -1241,6 +1250,10 @@ def handle(action, body, passcode):
             data["importance"] = clean_importance(body["importance"])
         if "needs_regen" in body:
             data["needs_regen"] = bool(body["needs_regen"])
+        if "question" in data or "answer" in data:
+            old = (s.get_cards([body["card_id"]]) or [{}])[0]
+            if data.get("question", old.get("question")) != old.get("question") or data.get("answer", old.get("answer")) != old.get("answer"):
+                data.update(explain="", explain_detail="", explain_choices={})
         s.update_card(body["card_id"], data)
         return {"ok": True}
 
@@ -1408,12 +1421,166 @@ def handle(action, body, passcode):
     raise ApiError("不明な操作です")
 
 
+
+# ---------------------------------------------------------------- 解説 (できた文字から順に返す)
+EXPLAIN_MODEL = "claude-sonnet-5-5"   # 速さ優先
+DETAIL_MODEL = "claude-opus-5-5"      # もっと詳しく
+CHOICE_MARK = "【選んだ答え"
+
+
+def claude_stream(prompt, model, effort, max_tokens):
+    """Claude の返事を、できた文字から順に返す。"""
+    import anthropic
+    client = anthropic_client()
+    kwargs = dict(model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}],
+                  output_config={"effort": effort}, betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+    try:
+        with client.beta.messages.stream(**kwargs) as stream:
+            for text in stream.text_stream:
+                yield text
+            msg = stream.get_final_message()
+            if msg.stop_reason == "refusal":
+                raise ApiError("AIが解説を断りました。", 422)
+    except anthropic.AuthenticationError:
+        raise ApiError("AIの鍵(ANTHROPIC_API_KEY)が正しくないようです。", 500)
+    except anthropic.RateLimitError:
+        raise ApiError("AIが混み合っています。少し待ってからもう一度お試しください。", 429)
+    except anthropic.APIStatusError as e:
+        raise ApiError(f"AIでエラーが起きました ({e.status_code})。", 502)
+    except anthropic.APIConnectionError:
+        raise ApiError("AIにつながりませんでした。", 502)
+
+
+def material_snippet(source, card, size=1500):
+    """教材の書き起こしから、このカードに関係しそうな所だけを抜き出す(速く・安くするため)。"""
+    source = source or ""
+    if len(source) <= size * 2:
+        return source
+    for key in (card.get("answer", ""), card.get("question", "")):
+        k = re.sub(r"[①-⑳\s。、()（）「」]", "", key)[:6]
+        if len(k) >= 2:
+            i = source.find(k)
+            if i >= 0:
+                return source[max(0, i - size): i + size]
+    return source[: size * 2]
+
+
+def card_context(card, deck):
+    return "\n".join([
+        f"科目: {deck.get('subject') or '不明'} / 学年: {deck.get('grade') or '中高生'} / 教材: {deck.get('title') or ''}",
+        f"問題(表): {card.get('question')}",
+        f"答え(裏): {card.get('answer')}",
+        f"カードのメモ: {card.get('note') or 'なし'}" + (f" / 例文: {card.get('example')}" if card.get("example") else ""),
+        "", "## 元の教材の関係しそうな部分", "<material>", material_snippet(deck.get("source_text"), card) or "(記録なし)", "</material>",
+    ])
+
+
+def explain_prompt(card, deck, picked, need_general):
+    lines = ["あなたは中高生に教えるのがとても上手な先生です。下のフラッシュカードの解説を書いてください。",
+             "- できるだけ元の教材の内容に沿って。中高生に分かりやすい言葉で、短めに(全体で300字くらいまで)。",
+             "- 見出しは下の【】の形をそのまま使い、マークダウン記号(#や**)は使わない。箇条書きは「・」。", ""]
+    if need_general:
+        lines += ["【なぜこれが正解か】1〜2文で。",
+                  "【覚え方】語呂合わせ・イメージ・似た言葉との区別のうち、効きそうなものを1〜2個。無理な語呂合わせは作らない。",
+                  "【まちがえやすいポイント】よくある勘違いや、似ていてまぎらわしいものを1〜2個。"]
+    if picked:
+        lines += [f"{CHOICE_MARK}「{picked}」がちがう理由】生徒が4択でまちがえて選んだ「{picked}」が、なぜこの問題の答えではないのか(それは何のことか)を1〜2文で。"]
+    if not need_general:
+        lines += ["(この見出しだけを書く)"]
+    return "\n".join(lines + ["", card_context(card, deck)])
+
+
+def detail_prompt(card, deck):
+    return "\n".join([
+        "あなたは中高生に教えるのがとても上手な先生です。下のフラッシュカードについて、もっと詳しく、丁寧に説明してください。",
+        "- 背景(なぜそうなったのか・どんな流れの中の話か)、理由、関連する知識、具体例まで入れて、理解が深まるように。",
+        "- できるだけ元の教材の内容に沿い、中高生に分かりやすい言葉で。教材にない話をするときは、教科書レベルの確かな内容だけにする。",
+        "- 見出しは【背景】【くわしい理由】【関連する知識】【具体例】などの【】の形。マークダウン記号(#や**)は使わない。全体で800字くらいまで。",
+        "", card_context(card, deck)])
+
+
+def explain_stream(s, body, detail):
+    cid = int(body["card_id"])
+    cards = s.get_cards([cid])
+    if not cards:
+        yield "（このカードが見つかりませんでした）"
+        return
+    c = cards[0]
+    regen = bool(body.get("regenerate"))
+    correct = str(c.get("answer") or "").strip()
+    picked = str(body.get("picked") or "").strip()
+    if picked in (correct, str(c.get("question") or "").strip()):
+        picked = ""
+    choices = c.get("explain_choices") or {}
+    if detail:
+        if c.get("explain_detail") and not regen:
+            yield c["explain_detail"]
+            return
+    else:
+        need_general = regen or not c.get("explain")
+        need_choice = bool(picked) and (regen or picked not in choices)
+        if not need_general and not need_choice:
+            yield c["explain"] + (("\n\n" + choices[picked]) if picked else "")
+            return
+        if not need_general:
+            yield c["explain"] + "\n\n"
+    deck = s.get_deck_row(c["deck_id"])
+    buf = ""
+    try:
+        if MOCK:
+            fake = ("【背景】(お試しモード)江戸時代のはじめ…\n【くわしい理由】…\n【関連する知識】…\n【具体例】…" if detail else
+                    ("【なぜこれが正解か】(お試しモード)教材にそう書いてあるからです。\n【覚え方】・語呂合わせ「いろはにほへと」\n【まちがえやすいポイント】・似た言葉に注意。" if need_general else "")
+                    + (f"\n{CHOICE_MARK}「{picked}」がちがう理由】それは別のことです。" if picked else ""))
+            for i in range(0, len(fake), 6):
+                time.sleep(float(os.environ.get("FLASH_MOCK_STREAM", "0.03")))
+                buf += fake[i:i + 6]
+                yield fake[i:i + 6]
+        elif detail:
+            for t in claude_stream(detail_prompt(c, deck), DETAIL_MODEL, "medium", 4000):
+                buf += t
+                yield t
+        else:
+            for t in claude_stream(explain_prompt(c, deck, picked, need_general), EXPLAIN_MODEL, "low", 1500):
+                buf += t
+                yield t
+    except ApiError as e:
+        yield f"\n\n（{e.message}）"
+        return
+    buf = buf.strip()
+    if not buf:
+        return
+    # 保存して、2回目からはAIを使わずに出す
+    if detail:
+        s.update_card(cid, {"explain_detail": buf})
+    else:
+        i = buf.find(CHOICE_MARK)
+        general, part4 = (buf[:i].strip(), buf[i:].strip()) if i >= 0 else (buf, "")
+        data = {}
+        if need_general:
+            data["explain"] = general or c.get("explain") or ""
+        else:
+            part4 = buf
+        if picked and part4:
+            data["explain_choices"] = dict(choices, **{picked: part4})
+        if data:
+            s.update_card(cid, data)
+
 @app.route("/", defaults={"path": ""}, methods=["GET", "POST"])
 @app.route("/<path:path>", methods=["GET", "POST"])
 def api(path):
     if request.method == "GET":
         return jsonify({"ok": True, "app": "flashcard", "mock": MOCK})
     body = request.get_json(silent=True) or {}
+    if body.get("action") in ("explain", "explain_detail"):
+        # 解説は、できた文字から順に送る
+        try:
+            st = store_for(request.headers.get("X-Flash-Pass", ""))
+            require_login(st)
+        except ApiError as e:
+            return jsonify({"error": e.message}), e.status
+        gen = explain_stream(st, body, body["action"] == "explain_detail")
+        return Response(stream_with_context(gen), mimetype="text/plain; charset=utf-8",
+                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
     try:
         return jsonify(handle(body.get("action", ""), body, request.headers.get("X-Flash-Pass", "")))
     except ApiError as e:

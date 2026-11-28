@@ -48,6 +48,9 @@ create table if not exists public.flash_cards (
   tag text not null default '',
   year int,
   importance int,
+  explain text not null default '',
+  explain_detail text not null default '',
+  explain_choices jsonb not null default '{}'::jsonb,
   needs_regen boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

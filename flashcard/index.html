@@ -219,6 +219,15 @@ async function api(action, data={}){
   }
   return j;
 }
+// できた文字から順に受け取る (解説用)
+async function streamApi(action,data,onText){
+  const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','X-Flash-Pass':S.pass},body:JSON.stringify({action,...data})});
+  if(!r.ok){let j={};try{j=await r.json()}catch(e){} if(r.status===401)logout(true); throw new Error(j.error||('通信エラー ('+r.status+')'))}
+  const rd=r.body&&r.body.getReader?r.body.getReader():null, dec=new TextDecoder(); let all='';
+  if(!rd){all=await r.text();onText(all);return all}
+  for(;;){const {done,value}=await rd.read(); if(done)break; all+=dec.decode(value,{stream:true}); onText(all)}
+  return all;
+}
 function opts(list, sel, blank){return (blank!=null?`<option value="">${esc(blank)}</option>`:'')+list.map(v=>`<option ${v===sel?'selected':''}>${esc(v)}</option>`).join('')}
 function fmtDate(s){if(!s)return '';const d=new Date(s);return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`}
 function daysAgo(s){return (Date.now()-new Date(s).getTime())/864e5}
@@ -683,7 +692,8 @@ function drawStudy(){
       <button class="btn sm ghost" onclick="editStudyCard()">✏️ このカードを編集</button></div>
     <div class="flash">
       <div class="muted small" style="margin-bottom:6px">${esc(ST.mode==='review'?'🔁 復習フラッシュ':ST.title)}${c.deck?` ・ ${esc(c.deck.title)}`:''}
-        ${r!==undefined?`<span class="chip ${r?'ok':'rev'}" style="margin-left:6px">${r?'○ 正解にした':'✕ まちがいにした'}</span>`:''}</div>
+        ${r!==undefined?`<span class="chip ${r?'ok':'rev'}" style="margin-left:6px">${r?'○ 正解にした':'✕ まちがいにした'}</span>`:''}
+        ${(ST.choice?r!==undefined:ST.shown)&&r!==false?`<button class="btn sm ghost" style="float:right;padding:3px 10px;font-size:13px" onclick="openExplain()">💡 解説</button>`:''}</div>
       ${ST.choice?choiceHtml(c,q,a,bigQ):`<button class="face-card" onclick="${ST.shown?'unflip()':'flip()'}">
         ${c.tag?`<span class="chip" style="margin-bottom:10px">${esc(c.tag)}</span>`:''}
         <div class="qq ${bigQ?'big':''}">${esc(q)}</div>
@@ -692,7 +702,8 @@ function drawStudy(){
           ${c.example?`<div class="ex">${esc(c.example)}</div>`:''}</div>`
           :`<div class="tap-hint">タップして答えを見る</div>`}
       </button>`}
-      ${ST.choice?'':ST.shown?`<div class="judge"><button class="ng" style="${r===false?'outline:3px solid var(--ng)':''}" onclick="judge(false)">✕ まちがい</button><button class="ok" style="${r===true?'outline:3px solid var(--ok)':''}" onclick="judge(true)">○ せいかい</button></div>`
+      ${ST.choice?'':ST.shown?`<div class="judge"><button class="ng" style="${r===false?'outline:3px solid var(--ng)':''}" onclick="judge(false)">✕ まちがい</button><button class="ok" style="${r===true?'outline:3px solid var(--ok)':''}" onclick="judge(true)">○ せいかい</button></div>
+        ${r===false?`<button class="btn block" style="margin-top:10px;padding:14px;font-size:17px;background:#fff6d6;color:#8a4b00;border:2px solid #f5c04a" onclick="openExplain()">💡 解説を見る（なぜ？・覚え方）</button>`:''}`
         :`<button class="btn navy block" style="margin-top:14px;padding:16px;font-size:18px" onclick="flip()">答えを見る</button>`}
       <div class="row" style="margin-top:10px">
         <button class="btn ghost grow" ${ST.i===0?'disabled':''} onclick="prevCard()">‹ 前のカード</button>
@@ -701,6 +712,55 @@ function drawStudy(){
     </div></div>`;
 }
 function flip(){ST.shown=true;drawStudy()}
+// ---- 解説 (Sonnetで速く→「もっと詳しく」はOpus。一度作ったら保存して次からはすぐ出す)
+function fmtExplain(t){
+  return esc(t).replace(/【([^】]+)】/g,'<div style="font-weight:800;color:var(--navy);margin-top:10px">【$1】</div>').replace(/\n/g,'<br>').replace(/(<\/div>)(<br>)+/g,'$1');
+}
+let EX=null;
+function openExplain(){
+  const c=ST.cards[ST.i], picked=ST.choice&&ST.res[ST.i]===false?ST.picked[ST.i]:'';
+  EX={c,picked,wrong:ST.res[ST.i]===false};
+  modal(`<div class="row"><h3 class="grow" style="margin:0">💡 解説</h3><button class="btn sm ghost" onclick="closeModal()">閉じる</button></div>
+    <div class="small" style="margin:8px 0;background:var(--chip);border-radius:10px;padding:8px 10px">
+      <div>${esc(c.question)}</div><div style="font-weight:800;color:var(--navy)">→ ${esc(c.answer)}</div>
+      ${picked?`<div style="color:var(--ng)">あなたが選んだ答え：${esc(picked)}</div>`:''}</div>
+    <div id="exBody" style="font-size:15px;line-height:1.75;min-height:60px"></div>
+    <div class="muted" style="font-size:11px;margin-top:8px">🤖 AIが作成した解説です</div>
+    <div class="row" style="margin-top:10px"><button class="btn navy grow" id="exMore" onclick="explainDetail(false)">🔎 もっと詳しく</button><button class="btn ghost" onclick="runExplain(true)">🔄 作り直す</button></div>
+    <div id="exDetail"></div>`);
+  runExplain(false);
+}
+function splitExplain(c,text,picked){
+  const i=text.indexOf('【選んだ答え'); const general=(i>=0?text.slice(0,i):text).trim(), p4=i>=0?text.slice(i).trim():'';
+  if(general) c.explain=general;
+  if(picked&&p4){c.explain_choices={...(c.explain_choices||{}),[picked]:p4}}
+}
+async function runExplain(regen){
+  const e=EX, c=e.c, body=$('#exBody'); if(!body) return;
+  const cached=!regen&&c.explain&&(!e.picked||(c.explain_choices||{})[e.picked]);
+  if(cached){ body.innerHTML=fmtExplain(c.explain+(e.picked?'\n\n'+c.explain_choices[e.picked]:'')); return }
+  body.innerHTML='<span class="spinner"></span> <span class="muted small">解説を作っています…</span>';
+  try{
+    const text=await streamApi('explain',{card_id:c.id,picked:e.picked,regenerate:!!regen},t=>{if(EX===e&&$('#exBody'))$('#exBody').innerHTML=fmtExplain(t)+'<span class="spinner" style="width:12px;height:12px;margin-left:4px"></span>'});
+    if(EX===e&&$('#exBody')) $('#exBody').innerHTML=fmtExplain(text);
+    if(!/（[^）]*(エラー|つながり|混み合|断り|鍵)/.test(text)) splitExplain(c,text,e.picked);
+  }catch(err){ if($('#exBody')) $('#exBody').innerHTML=`<p class="small" style="color:var(--ng)">${esc(err.message)}</p>` }
+}
+async function explainDetail(regen){
+  const e=EX, c=e.c, box=$('#exDetail'); if(!box) return;
+  box.innerHTML=`<div class="card" style="margin:12px 0 0;padding:12px;border:2px solid var(--chip)">
+    <div class="row"><b class="grow">🔎 もっと詳しく</b><button class="btn sm ghost" onclick="explainDetail(true)">🔄 作り直す</button></div>
+    <div id="exDetailBody" style="font-size:15px;line-height:1.75;margin-top:6px">${c.explain_detail&&!regen?fmtExplain(c.explain_detail):'<span class="spinner"></span> <span class="muted small">くわしく考えています…（Opus・少し時間がかかります）</span>'}</div>
+    <div class="muted" style="font-size:11px;margin-top:8px">🤖 AIが作成した解説です</div></div>`;
+  $('#exMore')&&$('#exMore').classList.add('hidden');
+  box.scrollIntoView({behavior:'smooth',block:'start'});
+  if(c.explain_detail&&!regen) return;
+  try{
+    const text=await streamApi('explain_detail',{card_id:c.id,regenerate:!!regen},t=>{if(EX===e&&$('#exDetailBody'))$('#exDetailBody').innerHTML=fmtExplain(t)+'<span class="spinner" style="width:12px;height:12px;margin-left:4px"></span>'});
+    if(EX===e&&$('#exDetailBody')) $('#exDetailBody').innerHTML=fmtExplain(text);
+    if(!/（[^）]*(エラー|つながり|混み合|断り|鍵)/.test(text)) c.explain_detail=text.trim();
+  }catch(err){ if($('#exDetailBody')) $('#exDetailBody').innerHTML=`<p class="small" style="color:var(--ng)">${esc(err.message)}</p>` }
+}
 // ---- 4択モード: 選択肢は同じ教材のほかのカードの答えから作る (AIは使わない)
 function makeChoices(c){
   const key=c.id+'|'+(ST.reverse?1:0); if(ST.choiceMap[key]) return ST.choiceMap[key];
@@ -721,6 +781,7 @@ function choiceHtml(c,q,a,bigQ){
       ${ch.map((t,k)=>{const isRight=t===a.trim(), isPicked=t===picked;
         const st=done?(isRight?'background:var(--ok-soft);border-color:var(--ok);color:var(--ok);opacity:1;font-weight:800':isPicked?'background:var(--ng-soft);border-color:var(--ng);color:var(--ng);opacity:1':'opacity:.5'):'';
         return `<button class="btn ghost" style="text-align:left;font-size:16px;padding:12px 14px;background:#fff;${st}" ${done?'disabled':''} onclick="pickChoice(${k})">${done&&isRight?'○ ':done&&isPicked?'✕ ':''}${esc(t)}</button>`}).join('')}
+      ${done&&ST.res[ST.i]===false?`<button class="btn block" style="padding:14px;font-size:17px;background:#fff6d6;color:#8a4b00;border:2px solid #f5c04a" onclick="openExplain()">💡 解説を見る（なぜちがう？・覚え方）</button>`:''}
       ${done&&(c.note||c.example)?`<div class="card" style="margin:0;padding:10px 12px">${c.note?`<div class="small">💡 ${esc(c.note)}</div>`:''}${c.example?`<div class="ex">${esc(c.example)}</div>`:''}</div>`:''}
       ${ch.length<2?'<p class="muted small">選択肢を作るにはカードが2枚以上必要です。</p>':''}
     </div>`;
@@ -734,10 +795,14 @@ function pickChoice(k){
 function swapSides(){ST.reverse=!ST.reverse;ST.shown=false;drawStudy();toast(ST.reverse?'裏→表の向きで出します':'ふつうの向きに戻しました',1800)}
 function editStudyCard(){
   const c=ST.cards[ST.i];
-  openCardEditor(c,(data)=>{Object.assign(c,data);drawStudy()});
+  openCardEditor(c,(data)=>{if(data.question!==c.question||data.answer!==c.answer){c.explain='';c.explain_detail='';c.explain_choices={}}Object.assign(c,data);drawStudy()});
 }
 function unflip(){ST.shown=false;drawStudy()}
-function judge(ok){ST.res[ST.i]=ok;ST.i++;keepPending();ST.shown=ST.res[ST.i]!==undefined;drawStudy()}
+function judge(ok){
+  ST.res[ST.i]=ok;
+  if(!ok){keepPending();ST.shown=true;drawStudy();return} // まちがいは、解説を見られるようにその場にとどまる
+  ST.i++;keepPending();ST.shown=ST.res[ST.i]!==undefined;drawStudy();
+}
 function prevCard(){if(ST.i>0){ST.i--;ST.shown=true;drawStudy()}}
 function nextCard(){if(ST.res[ST.i]!==undefined){ST.i++;ST.shown=ST.res[ST.i]!==undefined;drawStudy()}}
 function drawResult(){
