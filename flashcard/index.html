@@ -181,8 +181,9 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
 <script>
 'use strict';
 // ------------------------------------------------------------ バージョン (変更のたびに上げる。api/flash.py の APP_VERSION と同じにする)
-const APP_VERSION='1.26';
+const APP_VERSION='1.27';
 const CHANGELOG=[
+  ['1.27','11/29','科目ごとの成長を1つのグラフにまとめ、答え方ごとに線の色を分けた（切り替えをやめた）'],
   ['1.26','11/29','以前の記録に「4択／自分で答えた」を付けられるように。同じ日に分けて解いた分は同じ回として数える'],
   ['1.25','11/28','バージョン情報と「最近の変更」を表示'],
   ['1.24','11/28','科目ごとの成長を答え方別（自分で答える／4択／以前の記録）に分け、小さくまとめた'],
@@ -1038,70 +1039,66 @@ async function setSessionMode(id,mode){
   try{ await api('set_session_mode',{session_id:id,answer_mode:mode}); toast(mode==='choice'?'「4択」にしました':'「自分で答えた」にしました'); const y=window.scrollY; await renderHistory(); window.scrollTo(0,y) }catch(e){toast(e.message)}
 }
 // ------------------------------------------------------------ 科目ごとの成長
-// 4択と「自分で答える」は難しさが違うので混ぜずに、どちらか1つで見る。
-// さかのぼって作った以前の記録(区別できない分)は「以前の記録」として別にする。
-const GMODES=[['flip','自分で答える'],['choice','4択'],['mixed','以前の記録']];
+// やった分は全部まとめて1つのグラフに。答え方ごとに折れ線の色を分ける。
+const GMODES=[['flip','自分で答える','#1f9d63'],['choice','4択','#ff7a45'],['mixed','以前の記録（区別なし）','#9aa1b2']];
 const MIN_N=3; // 解いた数が少なすぎる点はぶれるので描かない
 const pctOf=x=>x&&x.n>=MIN_N?Math.round(x.ok/x.n*100):null;
-function miniChart(labels,values,color){
-  const W=160,H=78,L=4,R=4,T=10,B=14, w=W-L-R, h=H-T-B, n=labels.length;
+function miniChart(labels,series){
+  const W=160,H=80,L=4,R=4,T=10,B=14, w=W-L-R, h=H-T-B, n=labels.length;
   const X=i=>L+(n<=1?w/2:i*w/(n-1)), Y=v=>T+h-(v/100)*h;
   let g=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">`;
   [0,50,100].forEach(v=>{g+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#eef1f7" stroke-width="1"/>`});
   labels.forEach((t,i)=>{if(i===0||i===n-1||n<=5)g+=`<text x="${X(i)}" y="${H-3}" font-size="8" text-anchor="${i===0&&n>1?'start':i===n-1&&n>1?'end':'middle'}" fill="#8a91a3">${esc(t)}</text>`});
-  const pts=values.map((v,i)=>v==null?null:[X(i),Y(v),v]).filter(Boolean);
-  if(pts.length>1) g+=`<polyline fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" points="${pts.map(p=>p[0]+','+p[1]).join(' ')}"/>`;
-  pts.forEach(p=>{g+=`<circle cx="${p[0]}" cy="${p[1]}" r="2.3" fill="${color}"/>`});
-  if(pts.length){const f=pts[0],l=pts[pts.length-1];
-    if(pts.length>1) g+=`<text x="${f[0]+2}" y="${f[1]-4}" font-size="8" fill="#8a91a3">${f[2]}%</text>`;
-    g+=`<text x="${Math.min(l[0],W-R)}" y="${l[1]-4}" font-size="9" font-weight="700" fill="${color}" text-anchor="end">${l[2]}%</text>`}
+  for(const sr of series){
+    const pts=sr.values.map((v,i)=>v==null?null:[X(i),Y(v),v]).filter(Boolean); if(!pts.length) continue;
+    if(pts.length>1) g+=`<polyline fill="none" stroke="${sr.color}" stroke-width="2" stroke-linejoin="round" points="${pts.map(p=>p[0]+','+p[1]).join(' ')}"/>`;
+    pts.forEach(p=>{g+=`<circle cx="${p[0]}" cy="${p[1]}" r="2.2" fill="${sr.color}"/>`});
+    const l=pts[pts.length-1]; g+=`<text x="${Math.min(l[0]+1,W-R)}" y="${l[1]-4}" font-size="8.5" font-weight="700" fill="${sr.color}" text-anchor="end">${l[2]}%</text>`;
+  }
   return g+'</svg>';
 }
 async function renderGrowth(){
   let g; try{ g=await api('growth',{profile_id:S.profile.id}) }catch(e){ setView(histSeg()+`<div class="card">${esc(e.message)}</div>`); return }
   const mOf=r=>r.ans_mode==='choice'?'choice':r.ans_mode==='mixed'?'mixed':'flip';
-  // 最初は、最近いちばん使っている答え方で開く
-  if(!S.growthMode){
-    const recent={}, cut=dayKey(new Date(Date.now()-14*864e5));
-    g.daily.forEach(r=>{if(r.d>=cut)recent[mOf(r)]=(recent[mOf(r)]||0)+r.n});
-    const any={}; g.daily.forEach(r=>{any[mOf(r)]=(any[mOf(r)]||0)+r.n});
-    const pick=o=>Object.keys(o).sort((a,b)=>(a==='mixed')-(b==='mixed')||o[b]-o[a])[0];
-    S.growthMode=pick(recent)||pick(any)||'flip';
-  }
-  const mode=S.growthMode, color=mode==='choice'?'#ff7a45':mode==='mixed'?'#8a91a3':'#1f9d63';
-  const counts={}; g.daily.forEach(r=>{counts[mOf(r)]=(counts[mOf(r)]||0)+r.n});
-  const subs={}, get=k=>subs[k]=subs[k]||{days:{},att:{},n:0};
-  g.daily.filter(r=>mOf(r)===mode).forEach(r=>{const x=get(r.subject||'その他');x.days[r.d]={n:r.n,ok:r.ok};x.n+=r.n});
-  g.attempts.filter(r=>mOf(r)===mode).forEach(r=>{const x=get(r.subject||'その他');x.att[r.a]={n:r.n,ok:r.ok}});
+  const subs={}, get=k=>subs[k]=subs[k]||{days:{},att:{},n:0,used:new Set()};
+  g.daily.forEach(r=>{const x=get(r.subject||'その他'), m=mOf(r);(x.days[r.d]=x.days[r.d]||{})[m]={n:r.n,ok:r.ok};x.n+=r.n;x.used.add(m)});
+  g.attempts.forEach(r=>{const x=get(r.subject||'その他');(x.att[r.a]=x.att[r.a]||{})[mOf(r)]={n:r.n,ok:r.ok}});
   const names=Object.keys(subs).sort((a,b)=>subs[b].n-subs[a].n);
-  const up=(a,b)=>a==null||b==null?'—':`<span style="color:${b-a>=0?'var(--ok)':'var(--ng)'}">${b-a>=0?'+':''}${b-a}</span>`;
+  const usedAll=new Set(); names.forEach(n=>subs[n].used.forEach(m=>usedAll.add(m)));
   const rows=names.map(name=>{
-    const x=subs[name], m=(g.mastery||{})[name]||{cards:0,mastered:0};
-    const days=Object.keys(x.days).sort(); let buckets=[];
+    const x=subs[name], m=(g.mastery||{})[name]||{cards:0,mastered:0}, modes=GMODES.filter(([k])=>x.used.has(k));
+    // 日ごと(期間が長ければ週ごと)。答え方はまとめずに、それぞれの線にする
+    const days=Object.keys(x.days).sort(); let buckets=[], weekly=false;
     if(days.length){
-      const span=(new Date(days[days.length-1])-new Date(days[0]))/864e5, weekly=span>13;
+      weekly=(new Date(days[days.length-1])-new Date(days[0]))/864e5>13;
       const keyOf=d=>{if(!weekly)return d;const t=new Date(d+'T00:00:00');t.setDate(t.getDate()-((t.getDay()+6)%7));return dayKey(t)};
-      const bm={}; days.forEach(d=>{const k=keyOf(d), b=bm[k]=bm[k]||{n:0,ok:0}; b.n+=x.days[d].n; b.ok+=x.days[d].ok});
-      buckets=Object.keys(bm).sort().map(k=>({label:k.replace(/^\d+-0?(\d+)-0?(\d+)$/,'$1/$2'),...bm[k]})).filter(b=>b.n>=MIN_N);
+      const bm={}; days.forEach(d=>{const k=keyOf(d), b=bm[k]=bm[k]||{};
+        Object.entries(x.days[d]).forEach(([md,v])=>{const t=b[md]=b[md]||{n:0,ok:0};t.n+=v.n;t.ok+=v.ok})});
+      buckets=Object.keys(bm).sort().map(k=>({label:k.replace(/^\d+-0?(\d+)-0?(\d+)$/,'$1/$2'),v:bm[k]}))
+        .filter(b=>Object.values(b.v).some(t=>t.n>=MIN_N));
     }
-    const atts=[1,2,3,4,5].map(a=>x.att[a]||{n:0,ok:0}), attV=atts.map(pctOf), attOk=attV.filter(v=>v!=null).length>=2;
-    const a1=attV.find(v=>v!=null), aL=[...attV].reverse().find(v=>v!=null);
-    const now=buckets.length?pctOf(buckets[buckets.length-1]):null;
+    const atts=[1,2,3,4,5].map(a=>x.att[a]||{});
+    const attSeries=modes.map(([k,,c])=>({k,color:c,values:atts.map(a=>pctOf(a[k]))})).filter(sr=>sr.values.some(v=>v!=null));
+    const daySeries=modes.map(([k,,c])=>({k,color:c,values:buckets.map(b=>pctOf(b.v[k]))})).filter(sr=>sr.values.some(v=>v!=null));
+    const attOk=attSeries.some(sr=>sr.values.filter(v=>v!=null).length>=2)||(attSeries.length>=2);
+    // 数字: 答え方ごとに「いま」と「伸び」
+    const nowOf=k=>{for(let i=buckets.length-1;i>=0;i--){const v=pctOf(buckets[i].v[k]);if(v!=null)return v}return null};
+    const growOf=k=>{const v=atts.map(a=>pctOf(a[k])).filter(z=>z!=null);return v.length>=2?v[v.length-1]-v[0]:null};
+    const stat=modes.map(([k,t,c])=>{const now=nowOf(k), gr=growOf(k);if(now==null&&gr==null)return '';
+      return `<span style="white-space:nowrap"><b style="color:${c}">●</b>${k==='mixed'?'以前':k==='choice'?'4択':'自分で'} <b>${now!=null?now+'%':'—'}</b>${gr!=null?` <span style="color:${gr>=0?'var(--ok)':'var(--ng)'}">${gr>=0?'+':''}${gr}</span>`:''}</span>`}).join(' ');
     return `<div class="card" style="padding:10px 12px;margin-bottom:8px">
-      <div class="row" style="gap:6px"><b class="grow">${esc(name)}</b>
-        <span class="small">いま <b style="color:${color}">${now!=null?now+'%':'—'}</b></span>
-        <span class="small">伸び <b>${attOk?up(a1,aL):'—'}</b></span>
-        <span class="small muted">覚えた ${m.cards?Math.round(m.mastered/m.cards*100)+'%':'—'}</span></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px">
-        <div><div class="muted" style="font-size:10px">同じ問題・何回目</div>${attOk?miniChart(['1回','2','3','4','5回〜'],attV,color):'<div class="muted" style="font-size:11px;padding:14px 0">2回以上解くと出ます</div>'}</div>
-        <div><div class="muted" style="font-size:10px">${days.length&&(new Date(days[days.length-1])-new Date(days[0]))/864e5>13?'週':'日'}ごとの正答率</div>${buckets.length>=2?miniChart(buckets.map(b=>b.label),buckets.map(pctOf),color):'<div class="muted" style="font-size:11px;padding:14px 0">ちがう日にも解くと出ます</div>'}</div>
+      <div class="row" style="gap:6px"><b>${esc(name)}</b><span class="muted small grow">解いた数 ${x.n}問</span><span class="small muted">覚えた ${m.cards?Math.round(m.mastered/m.cards*100)+'%':'—'}</span></div>
+      <div class="small" style="display:flex;flex-wrap:wrap;gap:4px 10px;margin:2px 0 4px">${stat}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><div class="muted" style="font-size:10px">同じ問題・何回目</div>${attOk?miniChart(['1回','2','3','4','5回〜'],attSeries):'<div class="muted" style="font-size:11px;padding:14px 0">2回以上解くと出ます</div>'}</div>
+        <div><div class="muted" style="font-size:10px">${weekly?'週':'日'}ごとの正答率</div>${buckets.length>=2?miniChart(buckets.map(b=>b.label),daySeries):'<div class="muted" style="font-size:11px;padding:14px 0">ちがう日にも解くと出ます</div>'}</div>
       </div></div>`;
   }).join('');
   const since=g.since?new Date(g.since):null;
   setView(histSeg()+`
-    <div class="seg" style="margin-bottom:6px">${GMODES.filter(([k])=>k!=='mixed'||counts.mixed).map(([k,t])=>`<button class="${mode===k?'on':''}" onclick="S.growthMode='${k}';renderGrowth()">${t}${counts[k]?'':' (0)'}</button>`).join('')}</div>
-    <p class="muted" style="font-size:11px;margin:0 0 8px">${mode==='mixed'?'「以前の記録」は、4択と自分で答える場合を記録し分ける前の学習です（区別できないので別にしています）。':mode==='choice'?'4択だけの正答率です。':'自分で答えたときだけの正答率です。'}「伸び」は同じ問題を1回目→最近解いたときの差です。${since?` ${since.getMonth()+1}/${since.getDate()}から`:''}</p>
-    ${names.length?rows:`<div class="card center small">この答え方の記録はまだありません。${mode==='choice'?'4択で':mode==='flip'?'自分で答えて':''}解くとここに出ます。</div>`}`);
+    <div class="small" style="display:flex;flex-wrap:wrap;gap:4px 12px;margin:0 0 4px">${GMODES.filter(([k])=>usedAll.has(k)).map(([,t,c])=>`<span><b style="color:${c}">━</b> ${t}</span>`).join('')}</div>
+    <p class="muted" style="font-size:11px;margin:0 0 8px">やった分は全部まとめて表示し、答え方ごとに線の色を分けています（4択は自分で答えるより高めに出やすいので、同じ色どうしで比べてください）。数字は「いまの正答率」と、同じ問題での伸び（1回目→最近）です。${since?` ${since.getMonth()+1}/${since.getDate()}から`:''}</p>
+    ${names.length?rows:'<div class="card center small">まだ記録がありません。教材で問題を解くと、科目ごとの成長がここに出ます。</div>'}`);
 }
 
 // ------------------------------------------------------------ 学習の記録
