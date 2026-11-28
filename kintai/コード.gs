@@ -1,5 +1,5 @@
 /**
- * 勤怠記録 Webアプリ  v1.2（2026/11/28）
+ * 勤怠記録 Webアプリ  v1.3（2026/11/28）
  *
  * ・今までの月別シート（例: 2026-11）をそのまま読み書きします
  * ・時給は「時給履歴」シートで管理し、途中で変わっても日付ごとに正しく計算します
@@ -9,7 +9,7 @@
  */
 
 // プログラムの版（Index と同じ版になっているか画面で確認できます）
-var APP_VERSION = 'v1.2';
+var APP_VERSION = 'v1.3';
 
 // 時給履歴がまだ1件もないときに使う時給（最初の1回だけ使われます）
 var YOUR_HOURLY_WAGE = 1230;
@@ -42,11 +42,34 @@ var WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 // ============================================================
 //  画面を表示
 // ============================================================
+// 画面は毎回ここから最新版を読み込みます（デプロイし直さなくても画面の修正が反映されます）
+var INDEX_URL = 'https://raw.githubusercontent.com/kabutokunprog/kabu/claude/nifty-archimedes-9dvla3/kintai/Index.html';
+
 function doGet() {
   ensureSetup_();
-  return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('勤怠記録')
+  var out = null;
+  var html = loadRemoteIndex_();
+  if (html) out = HtmlService.createHtmlOutput(html);
+  if (!out) out = HtmlService.createHtmlOutputFromFile('Index');  // 読めないときは手元の Index を使う
+  return out.setTitle('勤怠記録')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+}
+
+/** 最新の画面を読み込む（5分間は覚えておく） */
+function loadRemoteIndex_() {
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get('INDEX_HTML');
+  if (hit) return hit;
+  try {
+    var res = UrlFetchApp.fetch(INDEX_URL, { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) return null;
+    var html = res.getContentText('UTF-8');
+    if (html.indexOf('INDEX_VERSION') < 0) return null;  // 中身がおかしいときは使わない
+    if (html.length < 90000) cache.put('INDEX_HTML', html, 300);
+    return html;
+  } catch (e) {
+    return null;
+  }
 }
 
 function getSheetUrl() { return SpreadsheetApp.getActiveSpreadsheet().getUrl(); }
