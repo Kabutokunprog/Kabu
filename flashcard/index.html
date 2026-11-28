@@ -183,8 +183,9 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
 <script>
 'use strict';
 // ------------------------------------------------------------ バージョン (変更のたびに上げる。api/flash.py の APP_VERSION と同じにする)
-const APP_VERSION='1.32';
+const APP_VERSION='1.33';
 const CHANGELOG=[
+  ['1.33','11/29','教材タブのいちばん上に「📌 次のテスト」フォルダを置き、1回で開けるように。フォルダも次のテストを先頭に'],
   ['1.32','11/29','成長グラフと分析を、理科は化学・生物などテスト科目ごとに分けた。同じ科目に教材が複数あれば（地理の教科書とプリントなど）教材ごとに線の色を分けた'],
   ['1.31','11/29','テスト日を教材ごとにも分けられるように（理科の化学・生物など、同じ科目で日がちがうとき）'],
   ['1.30','11/29','テスト日を科目ごとに入れられるように。ノルマは日付の近い科目から、科目ごとの直前チェックも'],
@@ -370,13 +371,22 @@ function folderPreview(list){
   const shown=names.slice(0,6);
   return `<span class="fprev">${shown.map(n=>`<span>${esc(n)}</span>`).join('')}${names.length>shown.length?`<span>ほか${names.length-shown.length}</span>`:''}</span>`;
 }
+// 次のテストのフォルダ [学年, テスト]: テスト日が登録されていればその範囲、なければ一番新しいテスト名つきの教材から
+function nextTestPath(){
+  const D=S.decks||[], st=S.examStatus;
+  let ds=st&&st.deck_ids&&st.deck_ids.length?D.filter(d=>st.deck_ids.includes(d.id)):[];
+  if(!ds.length){const d=D.find(d=>d.term); if(!d) return null; ds=[d]}
+  const cnt={}; ds.forEach(d=>{const k=JSON.stringify([d.grade||UNSET,d.term||UNSET]);cnt[k]=(cnt[k]||0)+1});
+  return JSON.parse(Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0]);
+}
+function openNextTest(){const p=nextTestPath(); if(p){S.folder=p;drawDecks()}}
 function openFolder(i){S.folder=S.folder.slice(0,i);drawDecks()}
 function enterFolder(name){S.folder.push(name);drawDecks()}
 function drawDecks(){
   const D=S.decks; S.folder=S.folder||[]; S.deckView=S.deckView||'folder';
   const cards=D.reduce((s,d)=>s+d.card_count,0), mastered=D.reduce((s,d)=>s+d.stats.mastered,0);
   const newestId=D.length?D[0].id:null;
-  let body='';
+  let body='', topNext='';
   if(!D.length){
     body=`<div class="card center"><p>まだ教材がありません。</p><button class="btn primary" onclick="showTab('make')">✨ 最初の教材を作る</button></div>`;
   }else if(S.deckView==='new'){
@@ -394,11 +404,24 @@ function drawDecks(){
       // フォルダは「中の一番新しい教材」が新しい順に並べる (新しいものが一番上)
       const groups=new Map();
       for(const d of inHere){const k=val(d,key);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(d)}
+      const np=nextTestPath();
       if(S.folder.length===0){
         const latest=D.slice(0,2);
+        const nl=np?D.filter(d=>(d.grade||UNSET)===np[0]&&(d.term||UNSET)===np[1]):[];
+        const nc=nl.reduce((s,d)=>s+d.card_count,0), nm=nl.reduce((s,d)=>s+d.stats.mastered,0);
+        const subs=[...new Set(nl.map(d=>d.subject||UNSET))];
+        const nextBtn=nl.length?`<button class="folder" style="border:2px solid var(--accent)" onclick="openNextTest()">
+          <span class="fi">📌</span><span class="grow"><span class="muted small">次のテスト</span><br><b>${esc(np[1])}</b> <span class="muted small">${esc(np[0])}</span><br>
+          <span class="muted small">教材 ${nl.length}つ ・ カード ${nc}枚 ・ 覚えた ${nm}枚</span>
+          <span class="fprev">${subs.slice(0,6).map(n=>`<span>📁${esc(n)}</span>`).join('')}</span></span>
+          <span class="muted" style="font-size:22px">›</span></button>`:'';
+        topNext=nextBtn;
         body=`<h3 style="margin:4px 0 8px">🆕 新しい教材</h3>${latest.map(d=>deckCardHtml(d,newestId,true)).join('')}<h3 style="margin:18px 0 8px">📂 フォルダ</h3>`+body;
       }
-      body+=[...groups.entries()].map(([name,list])=>{
+      // 次のテストのフォルダを一番上に、「未設定」は一番下に
+      const lvl=S.folder.length, onPath=np&&lvl<2&&S.folder.every((n,i)=>np[i]===n)?np[lvl]:null;
+      const rank=n=>n===onPath?0:n===UNSET?2:1;
+      body+=[...groups.entries()].sort((a,b)=>rank(a[0])-rank(b[0])).map(([name,list])=>{
         const c=list.reduce((s,d)=>s+d.card_count,0), m=list.reduce((s,d)=>s+d.stats.mastered,0), rv=list.reduce((s,d)=>s+d.stats.in_review,0);
         const hasNew=list.some(d=>d.id===newestId||daysAgo(d.created_at)<3);
         return `<button class="folder" onclick="enterFolder(${esc(JSON.stringify(name))})">
@@ -414,6 +437,7 @@ function drawDecks(){
   }
   setView(`
     ${examCardHtml()}
+    ${topNext}
     <div class="stats">
       <div class="stat"><b>${D.length}</b><span>教材</span></div>
       <div class="stat"><b>${cards}</b><span>できたカード</span></div>
