@@ -172,6 +172,27 @@ create table if not exists public.flash_job_pages (
   primary key (job_id, idx)
 );
 
+-- テスト日
+create table if not exists public.flash_exams (
+  id bigint generated always as identity primary key,
+  profile_id bigint not null references public.flash_profiles(id) on delete cascade,
+  name text not null default '',
+  exam_date date not null,
+  deck_ids jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+create index if not exists flash_exams_profile on public.flash_exams(profile_id, exam_date);
+
+-- まちがえ方の分析の結果
+create table if not exists public.flash_insights (
+  id bigint generated always as identity primary key,
+  profile_id bigint not null references public.flash_profiles(id) on delete cascade,
+  scope text not null default '',
+  result jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+create index if not exists flash_insights_profile on public.flash_insights(profile_id, scope, created_at desc);
+
 -- 合言葉 (リクエストヘッダ x-flash-pass) から家族かどうかを判定
 create or replace function public.flash_role() returns text
 language sql stable security definer set search_path = public, extensions as $$
@@ -221,6 +242,8 @@ alter table public.flash_test_attempts enable row level security;
 alter table public.flash_jobs enable row level security;
 alter table public.flash_job_pages enable row level security;
 alter table public.flash_answers enable row level security;
+alter table public.flash_exams enable row level security;
+alter table public.flash_insights enable row level security;
 revoke all on public.flash_members from anon, authenticated;
 
 create policy flash_profiles_family on public.flash_profiles for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
@@ -231,5 +254,7 @@ create policy flash_sessions_family on public.flash_sessions for all using ((sel
 create policy flash_tests_family on public.flash_tests for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
 create policy flash_test_attempts_family on public.flash_test_attempts for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
 create policy flash_jobs_family on public.flash_jobs for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
+create policy flash_exams_family on public.flash_exams for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
+create policy flash_insights_family on public.flash_insights for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
 create policy flash_answers_family on public.flash_answers for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);
 create policy flash_job_pages_family on public.flash_job_pages for all using ((select public.flash_role()) is not null) with check ((select public.flash_role()) is not null);

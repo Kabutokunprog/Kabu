@@ -32,7 +32,7 @@ MODEL_LABEL = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5"}
 def pick_model(key):
     return MODELS.get(key or "", MODEL)
 MOCK = os.environ.get("FLASH_MOCK") == "1"
-APP_VERSION = "1.28"  # 画面(index.html)の APP_VERSION と同じにする
+APP_VERSION = "1.29"  # 画面(index.html)の APP_VERSION と同じにする
 COMMIT = (os.environ.get("VERCEL_GIT_COMMIT_SHA") or "")[:7]  # ローカル確認用 (DB も AI も使わない)
 
 # 復習フラッシュ: 連続正解の回数 -> 次に出すまでの日数。3回連続正解で卒業。
@@ -256,6 +256,49 @@ class SupaStore:
 
     def growth(self, profile_id):
         return self.rpc("flash_growth", {"pid": int(profile_id)})
+
+    # テスト日
+    def exams_list(self, profile_id):
+        return self._req("GET", "flash_exams", {"profile_id": f"eq.{int(profile_id)}", "select": "*", "order": "exam_date.asc"})
+
+    def exam_save(self, row, exam_id=None):
+        if exam_id:
+            self._req("PATCH", "flash_exams", {"id": f"eq.{int(exam_id)}"}, row, prefer="return=minimal")
+        else:
+            self._req("POST", "flash_exams", body=row, prefer="return=minimal")
+
+    def exam_delete(self, exam_id):
+        self._req("DELETE", "flash_exams", {"id": f"eq.{int(exam_id)}"})
+
+    # 今日解いた数
+    def answers_since(self, profile_id, since_iso):
+        return self._req("GET", "flash_answers", {"profile_id": f"eq.{int(profile_id)}", "answered_at": f"gte.{since_iso}",
+                                                  "study_mode": "neq.backfill", "select": "deck_id", "limit": "5000"})
+
+    # 忘れる前の確認の候補 (正解したまましばらく解いていないカード)
+    def refresh_candidates(self, profile_id, older_than_iso):
+        rows = self._req("GET", "flash_progress", {
+            "in_review": "is.false", "last_result": "eq.correct", "last_answered_at": f"lt.{older_than_iso}",
+            "select": "*,flash_cards!inner(*,flash_decks!inner(id,profile_id,title,subject,grade,term,card_kind))",
+            "flash_cards.flash_decks.profile_id": f"eq.{int(profile_id)}", "order": "last_answered_at.asc", "limit": "500"})
+        out = []
+        for p in rows:
+            c = p.pop("flash_cards", None)
+            if not c:
+                continue
+            c["deck"] = c.pop("flash_decks", None) or {}
+            c["progress"] = p
+            out.append(c)
+        return out
+
+    # まちがえ方の分析
+    def insight_get(self, profile_id, scope):
+        rows = self._req("GET", "flash_insights", {"profile_id": f"eq.{int(profile_id)}", "scope": f"eq.{scope}",
+                                                   "select": "*", "order": "created_at.desc", "limit": "1"})
+        return rows[0] if rows else None
+
+    def insight_add(self, row):
+        self._req("POST", "flash_insights", body=row, prefer="return=minimal")
 
     def set_session_mode(self, session_id, mode):
         rows = self._req("PATCH", "flash_sessions", {"id": f"eq.{int(session_id)}"}, {"answer_mode": mode}, prefer="return=representation")
@@ -591,6 +634,53 @@ class MemoryStore:
                 for a in self.data.get("answers", []):
                     if a.get("study_mode") == "backfill" and a.get("deck_id") == x.get("deck_id") and a.get("answered_at") == x.get("finished_at"):
                         a["ans_mode"] = mode
+
+    def exams_list(self, profile_id):
+        self._need()
+        return sorted([dict(e) for e in self.data.get("exams", []) if e["profile_id"] == int(profile_id)], key=lambda e: e["exam_date"])
+
+    def exam_save(self, row, exam_id=None):
+        self._need()
+        ex = self.data.setdefault("exams", [])
+        if exam_id:
+            for e in ex:
+                if e["id"] == int(exam_id):
+                    e.update(row)
+        else:
+            ex.append(dict(row, id=self._id()))
+
+    def exam_delete(self, exam_id):
+        self._need()
+        self.data["exams"] = [e for e in self.data.get("exams", []) if e["id"] != int(exam_id)]
+
+    def answers_since(self, profile_id, since_iso):
+        self._need()
+        return [{"deck_id": a.get("deck_id")} for a in self.data.get("answers", [])
+                if a["profile_id"] == int(profile_id) and a.get("study_mode") != "backfill" and a["answered_at"] >= since_iso]
+
+    def refresh_candidates(self, profile_id, older_than_iso):
+        self._need()
+        out = []
+        for cid, p in self.data["progress"].items():
+            if p.get("in_review") or p.get("last_result") != "correct" or (p.get("last_answered_at") or "") >= older_than_iso:
+                continue
+            c = next((dict(c) for c in self.data["cards"] if c["id"] == cid), None)
+            d = c and next((d for d in self.data["decks"] if d["id"] == c["deck_id"]), None)
+            if not d or d.get("profile_id") != int(profile_id):
+                continue
+            c["progress"] = p
+            c["deck"] = {k: d.get(k) for k in ("id", "profile_id", "title", "subject", "grade", "term", "card_kind")}
+            out.append(c)
+        return sorted(out, key=lambda c: c["progress"]["last_answered_at"])
+
+    def insight_get(self, profile_id, scope):
+        self._need()
+        rows = [r for r in self.data.get("insights", []) if r["profile_id"] == int(profile_id) and r["scope"] == scope]
+        return rows[-1] if rows else None
+
+    def insight_add(self, row):
+        self._need()
+        self.data.setdefault("insights", []).append(dict(row, created_at=iso(now_utc())))
 
     def growth(self, profile_id):
         self._need()
@@ -1140,9 +1230,176 @@ def is_due(card):
 DECK_EDIT_FIELDS = ("title", "grade", "term", "subject", "memo", "card_kind", "profile_id")
 
 
+
+# ---------------------------------------------------------------- テスト日・ノルマ・忘れる前の確認・直前チェック・入力の判定・まちがえ方の分析
+JST = timezone(timedelta(hours=9))
+REFRESH_DAYS = {1: 3, 2: 7, 3: 14}  # 正解した回数 → 次に「忘れる前の確認」で出すまでの日数 (4回以上は30日)
+
+
+def today_jst():
+    return datetime.now(JST).date()
+
+
+def is_mastered(c):
+    p = c.get("progress") or {}
+    return bool(p.get("correct_count")) and not p.get("in_review")
+
+
+def scope_decks(s, profile_id, deck_ids=None, term=None, subject=None):
+    """範囲の教材を (deck, cards) で返す。"""
+    decks, _ = s.list_decks(profile_id)
+    if deck_ids:
+        want = {int(i) for i in deck_ids}
+        decks = [d for d in decks if d["id"] in want]
+    elif term:
+        decks = [d for d in decks if (d.get("term") or "") == term]
+    elif subject:
+        decks = [d for d in decks if (d.get("subject") or "その他") == subject]
+    out = []
+    for d in decks:
+        dd, cards = s.get_deck(d["id"])
+        for c in cards:
+            c["deck"] = {k: dd.get(k) for k in ("id", "title", "subject", "grade", "term", "card_kind")}
+        out.append((dd, cards))
+    return out
+
+
+def pick_cards(scoped, kind, limit):
+    cards = [c for _, cs in scoped for c in cs]
+    now = now_utc()
+    if kind == "final":
+        # 直前チェック: まちがえたことがある・復習中・頻出★の高いもの
+        def score(c):
+            p = c.get("progress") or {}
+            return (p.get("wrong_count") or 0) * 2 + (3 if p.get("in_review") else 0) + (c.get("importance") or 3)
+        cards.sort(key=lambda c: (-score(c), c.get("position", 0)))
+        return cards[:limit]
+    # 今日のノルマ: 覚えていないものを、復習の期限が来たもの → まだ解いていないもの → それ以外 の順に
+    todo = [c for c in cards if not is_mastered(c)]
+    def key(c):
+        p = c.get("progress")
+        if p and p.get("in_review"):
+            due = p.get("next_due_at")
+            grp = 0 if (not due or datetime.fromisoformat(due.replace("Z", "+00:00")) <= now) else 2
+        else:
+            grp = 1 if not p else 2
+        return (grp, -(c.get("importance") or 3), c["deck"]["id"], c.get("position", 0))
+    todo.sort(key=key)
+    return todo[:limit]
+
+
+def exam_summary(s, profile_id, exam):
+    scoped = scope_decks(s, profile_id, exam.get("deck_ids") or None, term=None if exam.get("deck_ids") else exam.get("name"))
+    cards = [c for _, cs in scoped for c in cs]
+    total = len(cards)
+    mastered = sum(1 for c in cards if is_mastered(c))
+    remaining = total - mastered
+    days_left = (datetime.fromisoformat(str(exam["exam_date"])).date() - today_jst()).days
+    if days_left <= 0:
+        quota = 0
+    else:
+        study_days = max(1, days_left - 1)  # 最後の1日は直前チェック用に空けておく
+        quota = min(remaining, max(5, -(-remaining // study_days))) if remaining else 0
+    start = datetime.combine(today_jst(), datetime.min.time(), JST).astimezone(timezone.utc).isoformat()
+    ids = {dd["id"] for dd, _ in scoped}
+    done_today = sum(1 for a in s.answers_since(profile_id, start) if a.get("deck_id") in ids)
+    return {"exam": exam, "days_left": days_left, "total": total, "mastered": mastered, "remaining": remaining,
+            "quota": quota, "done_today": done_today, "deck_ids": sorted(ids), "deck_count": len(ids)}
+
+
+def next_exam(s, profile_id):
+    t = today_jst().isoformat()
+    ex = [e for e in s.exams_list(profile_id) if str(e["exam_date"]) >= t]
+    return ex[0] if ex else None
+
+
+def refresh_cards(s, profile_id, limit=20):
+    older = (now_utc() - timedelta(days=3)).isoformat()
+    out = []
+    for c in s.refresh_candidates(profile_id, older):
+        p = c["progress"]
+        days = REFRESH_DAYS.get(int(p.get("correct_count") or 0), 30)
+        last = datetime.fromisoformat(str(p["last_answered_at"]).replace("Z", "+00:00"))
+        if last <= now_utc() - timedelta(days=days):
+            out.append(c)
+    return out[:limit]
+
+
+GRADE_ONE_SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}, "comment": {"type": "string"}},
+                    "required": ["ok", "comment"], "additionalProperties": False}
+
+
+def grade_typed(card, given, reverse):
+    question, answer = (card["answer"], card["question"]) if reverse else (card["question"], card["answer"])
+    if not given.strip():
+        return {"ok": False, "comment": "未回答"}
+    alts = [norm_ans(a) for a in re.split(r"[／/]", answer) if a.strip()]
+    if norm_ans(given) in alts or norm_ans(given) == norm_ans(answer):
+        return {"ok": True, "comment": ""}
+    if MOCK:
+        return {"ok": False, "comment": "(お試しモード: AI判定の代わり)"}
+    prompt = "\n".join([
+        "あなたは中学・高校の先生です。フラッシュカードで生徒が打ち込んだ答えを判定してください。",
+        "- 意味が同じで正しければ正解(ひらがな書き・別名・表記ゆれ・語順の違いは正解でよい。明らかに違う語は不正解)。",
+        "- 答えが「意味」のとき(古文単語・英単語など)は、主な意味が合っていれば正解(複数ある意味のうち1つでよい)。",
+        "- 漢字の誤りがあれば、正解でも comment で指摘する。不正解なら、どこが違うかを短く。",
+        "- comment は生徒向けにやさしく1文。正解で指摘がなければ空でよい。",
+        "", f"問題: {question}", f"正解: {answer}", f"生徒の答え: {given}"])
+    return json.loads(claude_call(prompt, "low", schema=GRADE_ONE_SCHEMA, max_tokens=2000, model=pick_model("sonnet")))
+
+
+ANALYZE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "tendencies": {"type": "array", "items": {"type": "string"}},
+        "pairs": {"type": "array", "items": {"type": "object", "properties": {
+            "a_id": {"type": "integer"}, "b_id": {"type": "integer"}, "tip": {"type": "string"}},
+            "required": ["a_id", "b_id", "tip"], "additionalProperties": False}},
+        "advice": {"type": "array", "items": {"type": "string"}},
+        "practice_ids": {"type": "array", "items": {"type": "integer"}},
+    },
+    "required": ["summary", "tendencies", "pairs", "advice", "practice_ids"], "additionalProperties": False,
+}
+
+
+def analyze_mistakes(s, profile_id, scoped, label):
+    cards = [c for _, cs in scoped for c in cs]
+    wrong = [c for c in cards if (c.get("progress") or {}).get("wrong_count")]
+    wrong.sort(key=lambda c: -((c["progress"].get("wrong_count") or 0) * 2 + (2 if c["progress"].get("in_review") else 0)))
+    wrong = wrong[:40]
+    if len(wrong) < 3:
+        raise ApiError("まちがえた問題がまだ少ないので、分析できません（3問以上たまったら試してください）")
+    others = [c for c in cards if c not in wrong][:80]
+    if MOCK:
+        data = {"summary": "(お試しモード)人物と出来事の取り違えが多いようです。", "tendencies": ["人物名と作品名の取り違え", "年代の近い出来事の混同"],
+                "pairs": [{"a_id": wrong[0]["id"], "b_id": wrong[1]["id"], "tip": "前の時代か後の時代かで区別しよう"}],
+                "advice": ["似ているもの同士を並べて覚えよう"], "practice_ids": [c["id"] for c in wrong[:6]]}
+    else:
+        prompt = "\n".join([
+            "あなたは中学・高校の先生です。生徒がフラッシュカードでよくまちがえる問題を見て、まちがえ方の傾向を分析してください。",
+            "- summary: 全体のひとこと(1〜2文、前向きに)。",
+            "- tendencies: まちがえ方の傾向を2〜4個(例: 人物と作品の取り違え / 年代の近い出来事の混同 / 似た古文単語の混同 / 漢字の書き間違い)。",
+            "- pairs: 取り違えやすい2枚の組み合わせ(まちがえたカード同士、またはまちがえたカードと参考カード)を最大5組。tip に見分け方を1文で。",
+            "- advice: 次にどう勉強するとよいかを2〜3個。中高生に分かりやすい言葉で。",
+            "- practice_ids: まず練習するとよいカードの id を最大15個、似ているもの同士が並ぶ順に。",
+            f"範囲: {label}",
+            "", "## よくまちがえるカード(wrong=まちがえた回数)",
+            json.dumps([{"id": c["id"], "q": c["question"], "a": c["answer"], "tag": c.get("tag", ""),
+                         "wrong": c["progress"].get("wrong_count"), "correct": c["progress"].get("correct_count")} for c in wrong], ensure_ascii=False),
+            "", "## 参考: 同じ範囲のほかのカード", json.dumps([{"id": c["id"], "q": c["question"], "a": c["answer"]} for c in others], ensure_ascii=False)])
+        data = json.loads(claude_call(prompt, "medium", schema=ANALYZE_SCHEMA, max_tokens=8000, model=pick_model("sonnet")))
+    by_id = {c["id"]: c for c in cards}
+    data["pairs"] = [p for p in data.get("pairs", []) if p.get("a_id") in by_id and p.get("b_id") in by_id]
+    data["practice_ids"] = [i for i in data.get("practice_ids", []) if i in by_id] or [c["id"] for c in wrong[:15]]
+    data["cards"] = {str(i): {"q": by_id[i]["question"], "a": by_id[i]["answer"]}
+                     for i in set(data["practice_ids"]) | {p["a_id"] for p in data["pairs"]} | {p["b_id"] for p in data["pairs"]}}
+    data["wrong_count"] = len(wrong)
+    return data
+
 def log_answers(s, body, answers, old, mode):
     """1問ずつの記録 (科目ごとの成長グラフ用): 何回目に解いたか・4択か自分で答えたか"""
-    ans_mode = "choice" if body.get("answer_mode") == "choice" else "flip"
+    ans_mode = body.get("answer_mode") if body.get("answer_mode") in ("choice", "type") else "flip"
     deck_of = {int(c["id"]): c.get("deck_id") for c in s.get_cards(list(answers))}
     subj = {}
     for did in set(v for v in deck_of.values() if v):
@@ -1210,9 +1467,11 @@ def handle(action, body, passcode):
             decks, prog = s.list_decks(p["id"])
             decks = deck_stats(decks, prog)
             due = [c for c in s.review_cards(p["id"]) if is_due(c)]
+            ex = next_exam(s, p["id"])
             out.append(dict(p, deck_count=len(decks), card_count=sum(d["card_count"] for d in decks),
                             mastered=sum(d["stats"]["mastered"] for d in decks),
-                            in_review=sum(d["stats"]["in_review"] for d in decks), due=len(due)))
+                            in_review=sum(d["stats"]["in_review"] for d in decks), due=len(due),
+                            next_exam={"name": ex["name"], "days_left": (datetime.fromisoformat(str(ex["exam_date"])).date() - today_jst()).days} if ex else None))
         return {"profiles": out}
 
     if action == "get_deck":
@@ -1256,7 +1515,7 @@ def handle(action, body, passcode):
                 "deck_title": str(body.get("deck_title") or "")[:200],
                 "subject": str(body.get("subject") or "")[:50],
                 "mode": "review" if mode == "review" else "normal",
-                "answer_mode": "choice" if body.get("answer_mode") == "choice" else "flip",
+                "answer_mode": body.get("answer_mode") if body.get("answer_mode") in ("choice", "type") else "flip",
                 "total": len(answers),
                 "correct": sum(1 for v in answers.values() if v),
                 "wrong_items": [{"q": str(w.get("q", ""))[:300], "a": str(w.get("a", ""))[:300]} for w in wrong],
@@ -1270,9 +1529,15 @@ def handle(action, body, passcode):
 
     if action == "set_session_mode":
         mode = body.get("answer_mode")
-        if mode not in ("choice", "flip", "mixed"):
+        if mode not in ("choice", "flip", "type", "mixed"):
             raise ApiError("答え方の指定が正しくありません")
         s.set_session_mode(body["session_id"], mode)
+        return {"ok": True}
+
+    if action == "mock_age_progress" and MOCK:  # お試しモード: 解いた日を過去にずらす
+        for pr in s.data["progress"].values():
+            if pr.get("last_answered_at"):
+                pr["last_answered_at"] = (datetime.fromisoformat(pr["last_answered_at"]) - timedelta(days=int(body.get("days") or 5))).isoformat()
         return {"ok": True}
 
     if action == "mock_seed_answers" and MOCK:  # お試しモードでのグラフ確認用
@@ -1288,6 +1553,60 @@ def handle(action, body, passcode):
             m["cards"] += d["card_count"]
             m["mastered"] += d["stats"]["mastered"]
         return {"daily": g.get("daily") or [], "attempts": g.get("attempts") or [], "since": g.get("since"), "mastery": mastery}
+
+    if action == "cards_by_ids":
+        return {"cards": s.get_cards([int(i) for i in (body.get("card_ids") or [])][:200])}
+
+    if action == "exams_list":
+        return {"exams": s.exams_list(body["profile_id"])}
+
+    if action == "exam_save":
+        name = str(body.get("name") or "").strip() or "テスト"
+        date = str(body.get("exam_date") or "")
+        try:
+            datetime.fromisoformat(date)
+        except ValueError:
+            raise ApiError("テストの日付を入れてください")
+        row = {"profile_id": int(body["profile_id"]), "name": name[:40], "exam_date": date[:10],
+               "deck_ids": [int(i) for i in (body.get("deck_ids") or [])]}
+        s.exam_save(row, body.get("exam_id"))
+        return {"ok": True}
+
+    if action == "exam_delete":
+        s.exam_delete(body["exam_id"])
+        return {"ok": True}
+
+    if action == "exam_status":
+        ex = next_exam(s, body["profile_id"])
+        return {"status": exam_summary(s, body["profile_id"], ex) if ex else None}
+
+    if action == "plan_cards":
+        kind = "final" if body.get("kind") == "final" else "quota"
+        scoped = scope_decks(s, body["profile_id"], body.get("deck_ids") or None)
+        return {"cards": pick_cards(scoped, kind, max(1, min(200, int(body.get("limit") or 30))))}
+
+    if action == "refresh_list":
+        return {"cards": refresh_cards(s, body["profile_id"], int(body.get("limit") or 20))}
+
+    if action == "grade_typed":
+        c = (s.get_cards([body["card_id"]]) or [None])[0]
+        if not c:
+            raise ApiError("カードが見つかりません", 404)
+        return grade_typed(c, str(body.get("given") or ""), bool(body.get("reverse")))
+
+    if action in ("analyze", "get_insight"):
+        if body.get("deck_ids"):
+            scope = "decks:" + ",".join(str(int(i)) for i in sorted(body["deck_ids"]))
+            label = str(body.get("label") or "テスト範囲")
+        else:
+            scope = "subject:" + str(body.get("subject") or "その他")
+            label = str(body.get("subject") or "その他")
+        if action == "get_insight":
+            return {"insight": s.insight_get(body["profile_id"], scope)}
+        scoped = scope_decks(s, body["profile_id"], body.get("deck_ids") or None, subject=None if body.get("deck_ids") else body.get("subject"))
+        data = analyze_mistakes(s, body["profile_id"], scoped, label)
+        s.insight_add({"profile_id": int(body["profile_id"]), "scope": scope, "result": data})
+        return {"insight": {"scope": scope, "result": data, "created_at": iso(now_utc())}}
 
     if action == "review_list":
         return {"cards": s.review_cards(body["profile_id"]), "now": iso(now_utc())}

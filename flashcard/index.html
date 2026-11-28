@@ -183,8 +183,9 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
 <script>
 'use strict';
 // ------------------------------------------------------------ バージョン (変更のたびに上げる。api/flash.py の APP_VERSION と同じにする)
-const APP_VERSION='1.28';
+const APP_VERSION='1.29';
 const CHANGELOG=[
+  ['1.29','11/29','テスト日のカウントダウンと今日のノルマ、直前チェック、忘れる前の確認、まちがえ方の分析（AI）、入力して答えるモード（設定でオン）を追加'],
   ['1.28','11/29','学習の記録の科目名を押すと、その科目の成長グラフに飛ぶように'],
   ['1.27','11/29','科目ごとの成長を1つのグラフにまとめ、答え方ごとに線の色を分けた（切り替えをやめた）'],
   ['1.26','11/29','以前の記録に「4択／自分で答えた」を付けられるように。同じ日に分けて解いた分は同じ回として数える'],
@@ -308,6 +309,7 @@ async function goTop(){
       <span class="grow"><span class="nm">${esc(p.name)}</span><br>
         <span class="sub">教材 ${p.deck_count}つ ・ カード ${p.card_count}枚 ・ 覚えた ${p.mastered}枚</span><br>
         ${p.due?`<span class="chip rev">今日の復習 ${p.due}枚</span>`:`<span class="chip ok">復習なし</span>`}
+        ${p.next_exam?`<span class="chip new">🗓 ${esc(p.next_exam.name)}${p.next_exam.days_left?'まであと'+p.next_exam.days_left+'日':' 今日！'}</span>`:''}
       </span><span style="font-size:24px;color:var(--muted)">›</span>
     </button>`).join('')}</div>
     <p class="center" style="margin-top:28px"><button class="btn ghost sm" onclick="logout()">ログアウト</button></p>
@@ -339,7 +341,7 @@ async function refreshBadge(){
 // ------------------------------------------------------------ 教材一覧
 async function renderDecks(){
   loading();
-  try{ const r=await api('list_decks',{profile_id:S.profile.id}); S.decks=r.decks }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
+  try{ const [r,ex]=await Promise.all([api('list_decks',{profile_id:S.profile.id}),api('exam_status',{profile_id:S.profile.id})]); S.decks=r.decks; S.examStatus=ex.status }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
   refreshBadge();
   drawDecks();
 }
@@ -404,9 +406,11 @@ function drawDecks(){
     }else{
       body+=inHere.map(d=>deckCardHtml(d,newestId,false)).join('');
     }
-    if(S.folder.length) body+=`<button class="btn navy block" style="margin-top:6px" onclick="openTestMaker(${esc(JSON.stringify(inHere.map(d=>d.id)))})">📝 このフォルダの教材でテストを作る</button>`;
+    if(S.folder.length) body+=`<div class="row" style="margin-top:6px"><button class="btn navy grow" onclick="openTestMaker(${esc(JSON.stringify(inHere.map(d=>d.id)))})">📝 テストを作る</button>
+      <button class="btn grow" style="background:#fff6d6;color:#8a4b00" onclick="startPlan('final',${esc(JSON.stringify(inHere.map(d=>d.id)))},'直前チェック')">🎯 直前チェック（30問）</button></div>`;
   }
   setView(`
+    ${examCardHtml()}
     <div class="stats">
       <div class="stat"><b>${D.length}</b><span>教材</span></div>
       <div class="stat"><b>${cards}</b><span>できたカード</span></div>
@@ -468,9 +472,7 @@ function drawDeck(){
       <label class="f">向き（表と裏）</label><div class="seg">
         <button class="${!so.reverse?'on':''}" onclick="setSO('reverse',false)">${word?'単語 → 意味':'問題 → 答え（ふつう）'}</button>
         <button class="${so.reverse?'on':''}" onclick="setSO('reverse',true)">${word?'意味 → 単語':'答え → 問題（逆）'}</button></div>
-      <label class="f">答え方</label><div class="seg">
-        <button class="${so.answer!=='choice'?'on':''}" onclick="setSO('answer','flip')">めくって自己採点</button>
-        <button class="${so.answer==='choice'?'on':''}" onclick="setSO('answer','choice')">4択で答える</button></div>
+      <label class="f">答え方</label>${answerSeg(so.answer,"setSO('answer','%')")}
       <button class="btn primary block" style="margin-top:14px;font-size:18px" onclick="startDeckStudy()">はじめる</button>
     </div>
 
@@ -617,7 +619,7 @@ function startDeckStudy(){
   }
   const d=S.deck;
   dropResume('deck:'+d.id);
-  startStudy(list,{mode:'normal',reverse:!!so.reverse,title:d.title,word:d.card_kind==='word',choice:so.answer==='choice',pool:S.cards,resumeKey:'deck:'+d.id,
+  startStudy(list,{mode:'normal',reverse:!!so.reverse,title:d.title,word:d.card_kind==='word',...ansOpts(so.answer),pool:S.cards,resumeKey:'deck:'+d.id,
     rec:{profile_id:S.profile.id,deck_id:d.id,deck_title:d.title,subject:d.subject},back:()=>openDeck(d.id)});
 }
 // 頻出順: ★(テストに出やすさ)の高い順 → まちがえた回数が多い順 → 教材の順
@@ -648,7 +650,7 @@ function studyPayload(){
   const answers=[], wrong=[];
   ST.cards.forEach((c,k)=>{const r=ST.res[k]; if(r===undefined||(ST.recorded&&ST.recorded.has(k))) return; answers.push({card_id:c.id,correct:r}); if(!r) wrong.push({q:c.question,a:c.answer})});
   if(!answers.length) return null;
-  return {...ST.rec,mode:ST.mode,answer_mode:ST.choice?'choice':'flip',started_at:ST.startedAt,answers,wrong_items:wrong};
+  return {...ST.rec,mode:ST.mode,answer_mode:ST.choice?'choice':ST.typeMode?'type':'flip',started_at:ST.startedAt,answers,wrong_items:wrong};
 }
 function keepPending(){const p=studyPayload(); lsSet('flash_pending_session',p?JSON.stringify(p):null); saveResume()}
 // ---- 途中から再開: どこまで進んだかを覚えておく (この端末に保存)
@@ -665,7 +667,7 @@ function saveResume(){
   const k=ST.resumeKey;
   lsSet(resumeKeyOf(k),JSON.stringify({ids:ST.cards.map(c=>c.id),r:Array.from({length:n},(_,i)=>ST.res[i]===true?'1':ST.res[i]===false?'0':'-').join(''),
     d:[...new Set(ST.cards.map(c=>c.deck_id).filter(Boolean))],t:Date.now(),
-    o:{mode:ST.mode,reverse:!!ST.reverse,title:ST.title,word:!!ST.word,choice:!!ST.choice,rec:ST.rec}}));
+    o:{mode:ST.mode,reverse:!!ST.reverse,title:ST.title,word:!!ST.word,choice:!!ST.choice,typeMode:!!ST.typeMode,rec:ST.rec}}));
   let idx=[];try{idx=JSON.parse(lsGet(resumeIndexKey())||'[]')}catch(e){}
   idx=[k,...idx.filter(x=>x!==k)];
   idx.slice(RESUME_MAX).forEach(old=>lsSet(resumeKeyOf(old),null));
@@ -715,8 +717,8 @@ function drawStudy(){
     <div class="flash">
       <div class="muted small" style="margin-bottom:6px">${esc(ST.mode==='review'?'🔁 復習フラッシュ':ST.title)}${c.deck?` ・ ${esc(c.deck.title)}`:''}
         ${r!==undefined?`<span class="chip ${r?'ok':'rev'}" style="margin-left:6px">${r?'○ 正解にした':'✕ まちがいにした'}</span>`:''}
-        ${(ST.choice?r!==undefined:ST.shown)&&r!==false?`<button class="btn sm ghost" style="float:right;padding:3px 10px;font-size:13px" onclick="openExplain()">💡 解説</button>`:''}</div>
-      ${ST.choice?choiceHtml(c,q,a,bigQ):`<button class="face-card" onclick="${ST.shown?'unflip()':'flip()'}">
+        ${(ST.choice||ST.typeMode?r!==undefined:ST.shown)&&r!==false?`<button class="btn sm ghost" style="float:right;padding:3px 10px;font-size:13px" onclick="openExplain()">💡 解説</button>`:''}</div>
+      ${ST.choice?choiceHtml(c,q,a,bigQ):ST.typeMode?typeHtml(c,q,a,bigQ):`<button class="face-card" onclick="${ST.shown?'unflip()':'flip()'}">
         ${c.tag?`<span class="chip" style="margin-bottom:10px">${esc(c.tag)}</span>`:''}
         <div class="qq ${bigQ?'big':''}">${esc(q)}</div>
         ${ST.shown?`<div class="aa"><div class="ans ${longA?'long':''}">${esc(a)}</div>
@@ -724,7 +726,7 @@ function drawStudy(){
           ${c.example?`<div class="ex">${esc(c.example)}</div>`:''}</div>`
           :`<div class="tap-hint">タップして答えを見る</div>`}
       </button>`}
-      ${ST.choice?'':ST.shown?`<div class="judge"><button class="ng" style="${r===false?'outline:3px solid var(--ng)':''}" onclick="judge(false)">✕ まちがい</button><button class="ok" style="${r===true?'outline:3px solid var(--ok)':''}" onclick="judge(true)">○ せいかい</button></div>
+      ${ST.choice||ST.typeMode?'':ST.shown?`<div class="judge"><button class="ng" style="${r===false?'outline:3px solid var(--ng)':''}" onclick="judge(false)">✕ まちがい</button><button class="ok" style="${r===true?'outline:3px solid var(--ok)':''}" onclick="judge(true)">○ せいかい</button></div>
         ${r===false?`<button class="btn block" style="margin-top:10px;padding:14px;font-size:17px;background:#fff6d6;color:#8a4b00;border:2px solid #f5c04a" onclick="openExplain()">💡 解説を見る（なぜ？・覚え方）</button>`:''}`
         :`<button class="btn navy block" style="margin-top:14px;padding:16px;font-size:18px" onclick="flip()">答えを見る</button>`}
       <div class="row" style="margin-top:10px">
@@ -734,6 +736,7 @@ function drawStudy(){
     </div></div>`;
 }
 function flip(){ST.shown=true;drawStudy()}
+setInterval(()=>{const el=document.getElementById('typeIn');if(el&&!el.dataset.f){el.dataset.f=1;el.focus()}},300);
 // ---- 解説 (Sonnetで速く→「もっと詳しく」はOpus。一度作ったら保存して次からはすぐ出す)
 function fmtExplain(t){
   return esc(t).replace(/【([^】]+)】/g,'<div style="font-weight:800;color:var(--navy);margin-top:10px">【$1】</div>').replace(/\n/g,'<br>').replace(/(<\/div>)(<br>)+/g,'$1');
@@ -808,6 +811,44 @@ function choiceHtml(c,q,a,bigQ){
       ${ch.length<2?'<p class="muted small">選択肢を作るにはカードが2枚以上必要です。</p>':''}
     </div>`;
 }
+// ---- 入力して答えるモード (設定でオンにした人だけ)
+function typeOn(){return lsGet('flash_typemode_'+(S.profile?S.profile.id:0))==='1'}
+function ansOpts(v){return {choice:v==='choice',typeMode:v==='type'&&typeOn()}}
+function answerSeg(cur,onclick){
+  const list=[['flip','めくって自己採点'],['choice','4択で答える'],...(typeOn()?[['type','入力して答える']]:[])];
+  if(cur==='type'&&!typeOn()) cur='flip';
+  return `<div class="seg">${list.map(([k,t])=>`<button class="${(cur||'flip')===k?'on':''}" onclick="${onclick.replace('%',k)}">${t}</button>`).join('')}</div>`;
+}
+function typeHtml(c,q,a,bigQ){
+  const r=ST.res[ST.i], t=(ST.typed||{})[ST.i]||{}, done=r!==undefined;
+  return `<div class="face-card" style="flex:0 1 auto;min-height:120px">
+      ${c.tag?`<span class="chip" style="margin-bottom:10px">${esc(c.tag)}</span>`:''}
+      <div class="qq ${bigQ?'big':''}">${esc(q)}</div>
+      ${done?`<div class="aa"><div class="ans ${a.length>40?'long':''}">${esc(a)}</div>${c.note?`<div class="note">💡 ${esc(c.note)}</div>`:''}</div>`:''}</div>
+    <div style="margin-top:12px">
+      ${done?`<div class="card" style="margin:0;padding:10px 12px;border-left:6px solid ${r?'var(--ok)':'var(--ng)'}">
+          <div class="row"><b style="font-size:20px;color:${r?'var(--ok)':'var(--ng)'}">${r?'○ 正解':'✕ ちがう'}</b><span class="small grow">あなたの答え：<b>${esc(t.given||'')}</b></span></div>
+          ${t.comment&&t.comment!=='未回答'?`<div class="small" style="margin-top:4px">🧑‍🏫 ${esc(t.comment)}</div>`:''}
+          <div class="row" style="margin-top:6px"><button class="btn sm ghost" onclick="overrideTyped(${!r})">やっぱり${r?'✕':'○'}にする</button></div></div>
+        ${r===false?`<button class="btn block" style="margin-top:8px;padding:14px;font-size:17px;background:#fff6d6;color:#8a4b00;border:2px solid #f5c04a" onclick="openExplain()">💡 解説を見る（なぜ？・覚え方）</button>`:''}`
+      :`<div class="row"><input class="t grow" id="typeIn" placeholder="答えを入力" value="${esc(t.given||'')}" onkeydown="if(event.key==='Enter'){event.preventDefault();gradeTyped()}">
+          <button class="btn primary" id="typeBtn" onclick="gradeTyped()">答え合わせ</button></div>
+        <button class="btn ghost block" style="margin-top:8px" onclick="ST.typed=ST.typed||{};ST.typed[ST.i]={given:'(わからない)'};ST.res[ST.i]=false;keepPending();drawStudy()">わからない（答えを見る）</button>`}
+    </div>`;
+}
+async function gradeTyped(){
+  const inp=$('#typeIn'); if(!inp) return; const given=inp.value.trim(); if(!given) return toast('答えを入れてください');
+  const c=ST.cards[ST.i], at=ST.i, right=(ST.reverse?c.question:c.answer);
+  const nz=x=>String(x||'').normalize('NFKC').toLowerCase().replace(/[\s、。，．,.・「」『』()（）①-⑳]/g,'');
+  let res;
+  if(right.split(/[／/]/).some(x=>nz(x)===nz(given))||nz(right)===nz(given)) res={ok:true,comment:''};
+  else{ $('#typeBtn').innerHTML='<span class="spinner"></span>'; $('#typeBtn').disabled=true;
+    try{ res=await api('grade_typed',{card_id:c.id,given,reverse:!!ST.reverse}) }catch(e){ toast(e.message); res={ok:false,comment:'判定できませんでした。「やっぱり○にする」で直せます'} } }
+  if(!ST||ST.i!==at) return;
+  ST.typed=ST.typed||{}; ST.typed[at]={given,comment:res.comment||''}; ST.res[at]=!!res.ok; keepPending(); drawStudy();
+  if(res.ok&&!res.comment) setTimeout(()=>{if(ST&&ST.i===at){ST.i++;drawStudy()}},900);
+}
+function overrideTyped(ok){ST.res[ST.i]=ok;keepPending();drawStudy()}
 function pickChoice(k){
   if(ST.res[ST.i]!==undefined) return;
   const c=ST.cards[ST.i], t=makeChoices(c)[k], ok=t===(ST.reverse?c.question:c.answer).trim();
@@ -847,7 +888,7 @@ function drawResult(){
 async function retryWrong(){
   const w=ST.cards.filter((c,k)=>ST.res[k]===false), o={...ST};
   await flushStudy();
-  startStudy(shuffle(w),{mode:o.mode,reverse:o.reverse,title:o.title,word:o.word,choice:o.choice,pool:o.pool,rec:o.rec,back:o.back});
+  startStudy(shuffle(w),{mode:o.mode,reverse:o.reverse,title:o.title,word:o.word,choice:o.choice,typeMode:o.typeMode,pool:o.pool,rec:o.rec,back:o.back});
 }
 async function quitStudy(){const back=ST&&ST.back;saveResume();await flushStudy();ST=null;drawStudy();if(back)back()}
 document.addEventListener('keydown',e=>{
@@ -862,7 +903,7 @@ document.addEventListener('keydown',e=>{
 // ------------------------------------------------------------ 復習フラッシュ
 async function renderReview(){
   loading();
-  try{ const r=await api('review_list',{profile_id:S.profile.id}); S.review=r.cards }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
+  try{ const [r,f]=await Promise.all([api('review_list',{profile_id:S.profile.id}),api('refresh_list',{profile_id:S.profile.id})]); S.review=r.cards; S.refresh=f.cards }catch(e){ setView(`<div class="card">${esc(e.message)}</div>`); return }
   const all=S.review, due=all.filter(isDue);
   const b=$('#revBadge'); b.textContent=due.length; b.classList.toggle('hidden',!due.length);
   const subs=[...new Set(all.map(c=>c.deck&&c.deck.subject).filter(Boolean))];
@@ -875,19 +916,27 @@ async function renderReview(){
       <div class="stat"><b>${all.length}</b><span>復習中ぜんぶ</span></div>
       <div class="stat"><b>${all.length-due.length}</b><span>あとで出る</span></div>
     </div>
+    ${S.refresh.length?`<div class="card" style="padding:12px;border:2px solid #cfe0ff;background:#f5f9ff">
+      <div class="row"><b class="grow">🧠 忘れる前の確認（${S.refresh.length}枚）</b><button class="btn sm navy" onclick="startRefresh()">はじめる</button></div>
+      <div class="muted small" style="margin-top:4px">前に正解したカードを、忘れるころ（3日・1週間・2週間・1か月後）に少しだけ確認します。</div></div>`:''}
     ${all.length?`
     ${subs.length>1?`<label class="f">科目</label><select class="t" onchange="S.revSub=this.value;renderReview()">${opts(subs,S.revSub,'すべての科目')}</select>`:''}
     <div style="display:grid;gap:10px;margin:14px 0">
       ${(()=>{const ri=resumeInfo('review');return ri&&ri.at<ri.n?`<button class="btn navy block" style="font-size:17px" onclick="resumeStudy('review',renderReview,null)">⏯ 前回の続きから（${ri.at+1}問目から／全${ri.n}問）</button>`:''})()}
       <button class="btn primary block" style="font-size:18px" ${pick(due).length?'':'disabled'} onclick="startReview(true)">今日の復習をはじめる (${pick(due).length})</button>
       <button class="btn block" onclick="startReview(false)">復習中をぜんぶやる (${pick(all).length})</button>
-      <div class="seg"><button class="${S.revAnswer!=='choice'?'on':''}" onclick="S.revAnswer='flip';renderReview()">めくって自己採点</button><button class="${S.revAnswer==='choice'?'on':''}" onclick="S.revAnswer='choice';renderReview()">4択で答える</button></div>
+      ${answerSeg(S.revAnswer,"S.revAnswer='%';renderReview()")}
     </div>
     <div class="card"><h3>復習中の問題</h3><ul class="qlist">${pick(all).map(c=>{const s=c.progress.review_streak||0;return `<li>
       <div class="grow"><div class="q">${esc(c.question)}</div><div class="a">${esc(c.answer)}</div>
       <div class="chips" style="margin-top:3px"><span class="chip">${esc(c.deck.title)}</span><span class="chip ${isDue(c)?'rev':''}">${isDue(c)?'今日':fmtDate(c.progress.next_due_at)+'に出る'}</span>
       <span class="chip ok">${'●'.repeat(s)}${'○'.repeat(3-s)} 卒業まであと${3-s}回</span></div></div></li>`}).join('')}</ul></div>`
     :`<div class="card center"><p style="font-size:40px;margin:0">🎉</p><p>復習する問題はありません。</p></div>`}`);
+}
+async function startRefresh(){
+  const l=S.refresh||[]; if(!l.length) return toast('いまは確認するカードがありません');
+  let pool=l; if(S.revAnswer==='choice'){ pool=[...l]; for(const did of [...new Set(l.map(c=>c.deck_id))]){ try{ pool.push(...(await api('get_deck',{deck_id:did})).cards) }catch(e){} } }
+  startStudy(shuffle(l),{mode:'review',title:'忘れる前の確認',...ansOpts(S.revAnswer),pool,rec:{profile_id:S.profile.id,deck_id:null,deck_title:'忘れる前の確認',subject:''},back:renderReview});
 }
 function startReview(onlyDue){
   let l=onlyDue?S.review.filter(isDue):S.review.slice();
@@ -898,12 +947,12 @@ function startReview(onlyDue){
 async function startReviewStudy(l){
   // 4択のときは、元の教材のカード全部から選択肢を作る
   let pool=S.review;
-  if(S.revAnswer==='choice'){
+  if(S.revAnswer==='choice'||S.revAnswer==='type'){
     toast('準備しています…',1500); pool=[...S.review];
     for(const did of [...new Set(l.map(c=>c.deck_id))]){ try{ pool.push(...(await api('get_deck',{deck_id:did})).cards) }catch(e){} }
   }
   dropResume('review');
-  startStudy(shuffle(l),{mode:'review',title:'復習',choice:S.revAnswer==='choice',pool,resumeKey:'review',rec:{profile_id:S.profile.id,deck_id:null,deck_title:'復習フラッシュ',subject:S.revSub||''},back:renderReview});
+  startStudy(shuffle(l),{mode:'review',title:'復習',...ansOpts(S.revAnswer),pool,resumeKey:'review',rec:{profile_id:S.profile.id,deck_id:null,deck_title:'復習フラッシュ',subject:S.revSub||''},back:renderReview});
 }
 
 // ------------------------------------------------------------ テスト
@@ -1051,7 +1100,7 @@ async function setSessionMode(id,mode){
 }
 // ------------------------------------------------------------ 科目ごとの成長
 // やった分は全部まとめて1つのグラフに。答え方ごとに折れ線の色を分ける。
-const GMODES=[['flip','自分で答える','#1f9d63'],['choice','4択','#ff7a45'],['mixed','以前の記録（区別なし）','#9aa1b2']];
+const GMODES=[['flip','自分で答える','#1f9d63'],['type','入力して答える','#3b82f6'],['choice','4択','#ff7a45'],['mixed','以前の記録（区別なし）','#9aa1b2']];
 const MIN_N=3; // 解いた数が少なすぎる点はぶれるので描かない
 const pctOf=x=>x&&x.n>=MIN_N?Math.round(x.ok/x.n*100):null;
 function miniChart(labels,series){
@@ -1070,7 +1119,7 @@ function miniChart(labels,series){
 }
 async function renderGrowth(){
   let g; try{ g=await api('growth',{profile_id:S.profile.id}) }catch(e){ setView(histSeg()+`<div class="card">${esc(e.message)}</div>`); return }
-  const mOf=r=>r.ans_mode==='choice'?'choice':r.ans_mode==='mixed'?'mixed':'flip';
+  const mOf=r=>['choice','mixed','type'].includes(r.ans_mode)?r.ans_mode:'flip';
   const subs={}, get=k=>subs[k]=subs[k]||{days:{},att:{},n:0,used:new Set()};
   g.daily.forEach(r=>{const x=get(r.subject||'その他'), m=mOf(r);(x.days[r.d]=x.days[r.d]||{})[m]={n:r.n,ok:r.ok};x.n+=r.n;x.used.add(m)});
   g.attempts.forEach(r=>{const x=get(r.subject||'その他');(x.att[r.a]=x.att[r.a]||{})[mOf(r)]={n:r.n,ok:r.ok}});
@@ -1096,9 +1145,10 @@ async function renderGrowth(){
     const nowOf=k=>{for(let i=buckets.length-1;i>=0;i--){const v=pctOf(buckets[i].v[k]);if(v!=null)return v}return null};
     const growOf=k=>{const v=atts.map(a=>pctOf(a[k])).filter(z=>z!=null);return v.length>=2?v[v.length-1]-v[0]:null};
     const stat=modes.map(([k,t,c])=>{const now=nowOf(k), gr=growOf(k);if(now==null&&gr==null)return '';
-      return `<span style="white-space:nowrap"><b style="color:${c}">●</b>${k==='mixed'?'以前':k==='choice'?'4択':'自分で'} <b>${now!=null?now+'%':'—'}</b>${gr!=null?` <span style="color:${gr>=0?'var(--ok)':'var(--ng)'}">${gr>=0?'+':''}${gr}</span>`:''}</span>`}).join(' ');
+      return `<span style="white-space:nowrap"><b style="color:${c}">●</b>${k==='mixed'?'以前':k==='choice'?'4択':k==='type'?'入力':'自分で'} <b>${now!=null?now+'%':'—'}</b>${gr!=null?` <span style="color:${gr>=0?'var(--ok)':'var(--ng)'}">${gr>=0?'+':''}${gr}</span>`:''}</span>`}).join(' ');
     return `<div class="card" data-subject="${esc(name)}" style="padding:10px 12px;margin-bottom:8px;scroll-margin-top:110px">
-      <div class="row" style="gap:6px"><b>${esc(name)}</b><span class="muted small grow">解いた数 ${x.n}問</span><span class="small muted">覚えた ${m.cards?Math.round(m.mastered/m.cards*100)+'%':'—'}</span></div>
+      <div class="row" style="gap:6px"><b>${esc(name)}</b><span class="muted small grow">解いた数 ${x.n}問</span><span class="small muted">覚えた ${m.cards?Math.round(m.mastered/m.cards*100)+'%':'—'}</span>
+        <button class="subj-link" onclick="openAnalysis({subject:${esc(JSON.stringify(name))}})">🔍 分析</button></div>
       <div class="small" style="display:flex;flex-wrap:wrap;gap:4px 10px;margin:2px 0 4px">${stat}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div><div class="muted" style="font-size:10px">同じ問題・何回目</div>${attOk?miniChart(['1回','2','3','4','5回〜'],attSeries):'<div class="muted" style="font-size:11px;padding:14px 0">2回以上解くと出ます</div>'}</div>
@@ -1110,6 +1160,88 @@ async function renderGrowth(){
     <div class="small" style="display:flex;flex-wrap:wrap;gap:4px 12px;margin:0 0 4px">${GMODES.filter(([k])=>usedAll.has(k)).map(([,t,c])=>`<span><b style="color:${c}">━</b> ${t}</span>`).join('')}</div>
     <p class="muted" style="font-size:11px;margin:0 0 8px">やった分は全部まとめて表示し、答え方ごとに線の色を分けています（4択は自分で答えるより高めに出やすいので、同じ色どうしで比べてください）。数字は「いまの正答率」と、同じ問題での伸び（1回目→最近）です。${since?` ${since.getMonth()+1}/${since.getDate()}から`:''}</p>
     ${names.length?rows:'<div class="card center small">まだ記録がありません。教材で問題を解くと、科目ごとの成長がここに出ます。</div>'}`);
+}
+
+// ------------------------------------------------------------ テスト日・今日のノルマ・直前チェック
+function examCardHtml(){
+  const st=S.examStatus;
+  if(!st) return `<p style="margin:0 0 10px"><button class="btn sm ghost" onclick="openExamEditor()">🗓 テスト日を登録すると、毎日のノルマが出ます</button></p>`;
+  const left=Math.max(0,st.quota-st.done_today), pct=st.quota?Math.min(100,Math.round(st.done_today/st.quota*100)):100;
+  const title=st.days_left===0?`今日は${esc(st.exam.name)}本番！がんばって💪`:`${esc(st.exam.name)}まで あと <b style="font-size:24px;color:var(--accent)">${st.days_left}</b> 日`;
+  return `<div class="card" style="padding:12px 14px;border:2px solid #ffd9c7">
+    <div class="row"><div class="grow">🗓 ${title}</div><button class="btn sm ghost" style="padding:3px 10px" onclick="openExamEditor(${st.exam.id})">編集</button></div>
+    <div class="small muted" style="margin:2px 0 6px">範囲 ${st.deck_count}教材 ・ 覚えた ${st.mastered}/${st.total}枚</div>
+    ${st.days_left>0?`<div class="row small"><b class="grow">今日のノルマ ${Math.min(st.done_today,st.quota)}/${st.quota}枚</b>${left?'':'<b style="color:var(--ok)">達成！🎉</b>'}</div>
+      <div class="bar" style="height:10px;margin:4px 0 10px"><i style="width:${pct}%;background:${left?'var(--accent)':'var(--ok)'}"></i></div>`:''}
+    <div class="row">
+      ${st.days_left>0&&st.remaining?`<button class="btn primary grow" onclick="startPlan('quota',${esc(JSON.stringify(st.deck_ids))},'今日のノルマ',${Math.max(left,10)})">▶ ${left?`今日の分をやる（${left}枚）`:'もっとやる'}</button>`:''}
+      <button class="btn grow" style="background:#fff6d6;color:#8a4b00" onclick="startPlan('final',${esc(JSON.stringify(st.deck_ids))},'直前チェック')">🎯 直前チェック${st.days_left<=1?'（今こそ！）':''}</button>
+    </div>
+    <button class="btn sm ghost block" style="margin-top:8px" onclick="openAnalysis({deck_ids:${esc(JSON.stringify(st.deck_ids))},label:${esc(JSON.stringify(st.exam.name))}})">🔍 まちがえ方を分析（AI）</button>
+  </div>`;
+}
+async function startPlan(kind,deckIds,title,limit){
+  if(!deckIds||!deckIds.length) return toast('範囲の教材がありません');
+  toast('問題を選んでいます…',1500);
+  try{ const r=await api('plan_cards',{profile_id:S.profile.id,deck_ids:deckIds,kind,limit:limit||30});
+    if(!r.cards.length) return toast(kind==='quota'?'覚えていないカードはありません！🎯 直前チェックをどうぞ':'出せる問題がありません');
+    const so=S.studyOpts||(S.studyOpts={order:'seq',range:'all',reverse:false});
+    startStudy(r.cards,{mode:'normal',title,...ansOpts(so.answer),pool:r.cards,rec:{profile_id:S.profile.id,deck_id:null,deck_title:title,subject:''},back:()=>showTab('decks')});
+  }catch(e){toast(e.message)}
+}
+async function openExamEditor(id){
+  if(!S.decks) S.decks=(await api('list_decks',{profile_id:S.profile.id})).decks;
+  let ex=null; if(id){ const r=await api('exams_list',{profile_id:S.profile.id}); ex=r.exams.find(e=>e.id===id) }
+  const terms=[...new Set(S.decks.map(d=>d.term).filter(Boolean))];
+  const name=ex?ex.name:(terms[0]||'2学期期末'), sel=new Set(ex?ex.deck_ids:[]);
+  const groups={}; S.decks.forEach(d=>{const k=[d.grade,d.term,d.subject].filter(Boolean).join(' › ')||'未設定';(groups[k]=groups[k]||[]).push(d)});
+  modal(`<h3>🗓 テスト日</h3>
+    <label class="f">テストの名前</label><select class="t" id="exName" onchange="examPreselect()">${opts([...new Set([...terms,...TERMS])],name)}</select>
+    <label class="f">日付（初日）</label><input class="t" id="exDate" type="date" value="${ex?ex.exam_date:''}">
+    <label class="f">範囲の教材 <span class="muted small">（何も選ばなければ、同じテスト名の教材が範囲になります）</span></label>
+    <div style="max-height:30vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px">
+      ${Object.entries(groups).map(([k,ds])=>`<div class="muted small" style="margin-top:6px">📁 ${esc(k)}</div>`+ds.map(d=>`<label class="row small" style="padding:3px 0"><input type="checkbox" class="exDeck" data-term="${esc(d.term||'')}" value="${d.id}" ${sel.has(d.id)?'checked':''}> ${esc(d.title)}</label>`).join('')).join('')}
+    </div>
+    <div class="row" style="margin-top:14px">${ex?`<button class="btn danger" onclick="deleteExam(${ex.id})">削除</button>`:''}<button class="btn ghost grow" onclick="closeModal()">やめる</button><button class="btn primary grow" onclick="saveExam(${ex?ex.id:'null'})">保存</button></div>`);
+  if(!ex) examPreselect();
+}
+function examPreselect(){const n=$('#exName').value;document.querySelectorAll('.exDeck').forEach(x=>{x.checked=x.dataset.term===n})}
+async function saveExam(id){
+  const date=$('#exDate').value; if(!date) return toast('日付を入れてください');
+  const ids=[...document.querySelectorAll('.exDeck:checked')].map(x=>+x.value);
+  try{ await api('exam_save',{exam_id:id,profile_id:S.profile.id,name:$('#exName').value,exam_date:date,deck_ids:ids}); closeModal(); toast('テスト日を保存しました'); renderDecks() }catch(e){toast(e.message)}
+}
+async function deleteExam(id){ if(!confirm('このテスト日を削除しますか？'))return; try{ await api('exam_delete',{exam_id:id}); closeModal(); renderDecks() }catch(e){toast(e.message)} }
+
+// ------------------------------------------------------------ まちがえ方の分析 (AI)
+let AN=null;
+async function openAnalysis(scope){
+  AN={scope};
+  modal(`<div class="row"><h3 class="grow" style="margin:0">🔍 まちがえ方の分析</h3><button class="btn sm ghost" onclick="closeModal()">閉じる</button></div><div id="anBody" style="margin-top:10px"><span class="spinner"></span></div>`);
+  try{ const r=await api('get_insight',{profile_id:S.profile.id,...scope}); drawAnalysis(r.insight) }catch(e){ $('#anBody').innerHTML=`<p class="small" style="color:var(--ng)">${esc(e.message)}</p>` }
+}
+async function runAnalysis(){
+  $('#anBody').innerHTML='<p><span class="spinner"></span> AIが分析しています…（10〜30秒）</p>';
+  try{ const r=await api('analyze',{profile_id:S.profile.id,...AN.scope}); drawAnalysis(r.insight) }catch(e){ $('#anBody').innerHTML=`<p class="small" style="color:var(--ng)">${esc(e.message)}</p><button class="btn block" onclick="runAnalysis()">もう一度</button>` }
+}
+function drawAnalysis(ins){
+  const box=$('#anBody'); if(!box) return;
+  if(!ins){ box.innerHTML=`<p class="small">よくまちがえる問題から、AIが「まちがえ方の傾向」と「まぎらわしい組み合わせの見分け方」を教えてくれます。</p><button class="btn primary block" onclick="runAnalysis()">分析する（AI）</button>`; return }
+  const r=ins.result, C=r.cards||{}, d=new Date(ins.created_at), qa=id=>{const c=C[id]||{};return `${esc(c.q||'')} → <b>${esc(c.a||'')}</b>`};
+  AN.practice=r.practice_ids||[];
+  box.innerHTML=`<p style="margin-top:0">${esc(r.summary)}</p>
+    ${(r.tendencies||[]).length?`<div style="font-weight:800;color:var(--navy)">【まちがえ方の傾向】</div><ul style="margin:4px 0 10px;padding-left:20px">${r.tendencies.map(t=>`<li class="small">${esc(t)}</li>`).join('')}</ul>`:''}
+    ${(r.pairs||[]).length?`<div style="font-weight:800;color:var(--navy)">【まぎらわしい組み合わせ】</div>${r.pairs.map(p=>`<div class="card" style="margin:6px 0;padding:8px 10px">
+      <div class="small">① ${qa(p.a_id)}</div><div class="small">② ${qa(p.b_id)}</div><div class="small" style="margin-top:4px;background:var(--accent-soft);border-radius:8px;padding:4px 8px">💡 ${esc(p.tip)}</div></div>`).join('')}`:''}
+    ${(r.advice||[]).length?`<div style="font-weight:800;color:var(--navy);margin-top:8px">【これからの勉強】</div><ul style="margin:4px 0 10px;padding-left:20px">${r.advice.map(t=>`<li class="small">${esc(t)}</li>`).join('')}</ul>`:''}
+    ${AN.practice.length?`<button class="btn primary block" onclick="startAnalysisPractice()">▶ 似ているもの同士で練習（${AN.practice.length}問）</button>`:''}
+    <div class="row" style="margin-top:10px"><span class="muted grow" style="font-size:11px">🤖 AIの分析 ・ ${d.getMonth()+1}/${d.getDate()} ・ まちがえた${r.wrong_count||''}問から</span><button class="btn sm ghost" onclick="runAnalysis()">🔄 分析し直す</button></div>`;
+}
+async function startAnalysisPractice(){
+  try{ const r=await api('cards_by_ids',{card_ids:AN.practice}); const byId=new Map(r.cards.map(c=>[c.id,c])); const list=AN.practice.map(i=>byId.get(i)).filter(Boolean);
+    closeModal(); const so=S.studyOpts||(S.studyOpts={order:'seq',range:'all',reverse:false});
+    startStudy(list,{mode:'normal',title:'似ているもの同士で練習',...ansOpts(so.answer),pool:list,rec:{profile_id:S.profile.id,deck_id:null,deck_title:'似ているもの同士で練習',subject:''},back:()=>{}});
+  }catch(e){toast(e.message)}
 }
 
 // ------------------------------------------------------------ 学習の記録
@@ -1455,6 +1587,9 @@ async function renderSettings(){
         <button class="btn sm" onclick="saveProfile(${p.id})">保存</button></div>`).join('')}
       <div class="row" style="margin-top:12px"><input class="t" style="width:64px;text-align:center" id="newE" value="🙂"><input class="t grow" id="newN" placeholder="追加する人の名前"><button class="btn sm" onclick="addProfile()">追加</button></div>
     </div>
+    <div class="card"><h3>答え方の設定（${esc(S.profile.name)}）</h3>
+      <label class="row" style="gap:10px"><input type="checkbox" style="width:22px;height:22px" ${typeOn()?'checked':''} onchange="lsSet('flash_typemode_'+S.profile.id,this.checked?'1':null);toast(this.checked?'「入力して答える」を使えるようにしました':'「入力して答える」をしまいました')">
+        <span class="grow">「入力して答える」モードを使う<br><span class="muted small">答えを打ち込んで答え合わせします（違う書き方はAIが判定）。ふだんはオフでOK。</span></span></label></div>
     <div class="card"><h3>家族の合言葉を変える</h3>
       <input class="t" id="np" type="password" placeholder="新しい合言葉（6文字以上）" autocomplete="new-password">
       <button class="btn block" style="margin-top:8px" onclick="changePass()">変更する</button>
