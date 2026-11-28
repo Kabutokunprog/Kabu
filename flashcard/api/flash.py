@@ -32,7 +32,7 @@ MODEL_LABEL = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5"}
 def pick_model(key):
     return MODELS.get(key or "", MODEL)
 MOCK = os.environ.get("FLASH_MOCK") == "1"
-APP_VERSION = "1.25"  # 画面(index.html)の APP_VERSION と同じにする
+APP_VERSION = "1.26"  # 画面(index.html)の APP_VERSION と同じにする
 COMMIT = (os.environ.get("VERCEL_GIT_COMMIT_SHA") or "")[:7]  # ローカル確認用 (DB も AI も使わない)
 
 # 復習フラッシュ: 連続正解の回数 -> 次に出すまでの日数。3回連続正解で卒業。
@@ -256,6 +256,16 @@ class SupaStore:
 
     def growth(self, profile_id):
         return self.rpc("flash_growth", {"pid": int(profile_id)})
+
+    def set_session_mode(self, session_id, mode):
+        rows = self._req("PATCH", "flash_sessions", {"id": f"eq.{int(session_id)}"}, {"answer_mode": mode}, prefer="return=representation")
+        if not rows:
+            raise ApiError("記録が見つかりません", 404)
+        x = rows[0]
+        if x.get("deck_id"):  # さかのぼって作ったグラフ用の記録も合わせる
+            self._req("PATCH", "flash_answers", {"profile_id": f"eq.{x['profile_id']}", "deck_id": f"eq.{x['deck_id']}",
+                                                 "study_mode": "eq.backfill", "answered_at": f"eq.{x['finished_at']}"},
+                      {"ans_mode": mode}, prefer="return=minimal")
 
     def list_sessions(self, profile_id, limit=300):
         return self._req("GET", "flash_sessions", {"profile_id": f"eq.{int(profile_id)}", "select": "*",
@@ -572,6 +582,15 @@ class MemoryStore:
     def add_answers(self, rows):
         self._need()
         self.data.setdefault("answers", []).extend(rows)
+
+    def set_session_mode(self, session_id, mode):
+        self._need()
+        for x in self.data.get("sessions", []):
+            if x["id"] == int(session_id):
+                x["answer_mode"] = mode
+                for a in self.data.get("answers", []):
+                    if a.get("study_mode") == "backfill" and a.get("deck_id") == x.get("deck_id") and a.get("answered_at") == x.get("finished_at"):
+                        a["ans_mode"] = mode
 
     def growth(self, profile_id):
         self._need()
@@ -1248,6 +1267,13 @@ def handle(action, body, passcode):
 
     if action == "history":
         return {"sessions": s.list_sessions(body["profile_id"])}
+
+    if action == "set_session_mode":
+        mode = body.get("answer_mode")
+        if mode not in ("choice", "flip", "mixed"):
+            raise ApiError("答え方の指定が正しくありません")
+        s.set_session_mode(body["session_id"], mode)
+        return {"ok": True}
 
     if action == "mock_seed_answers" and MOCK:  # お試しモードでのグラフ確認用
         s.add_answers(body.get("rows") or [])

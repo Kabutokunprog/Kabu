@@ -181,8 +181,9 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
 <script>
 'use strict';
 // ------------------------------------------------------------ バージョン (変更のたびに上げる。api/flash.py の APP_VERSION と同じにする)
-const APP_VERSION='1.25';
+const APP_VERSION='1.26';
 const CHANGELOG=[
+  ['1.26','11/29','以前の記録に「4択／自分で答えた」を付けられるように。同じ日に分けて解いた分は同じ回として数える'],
   ['1.25','11/28','バージョン情報と「最近の変更」を表示'],
   ['1.24','11/28','科目ごとの成長を答え方別（自分で答える／4択／以前の記録）に分け、小さくまとめた'],
   ['1.23','11/28','成長グラフ：3問未満の点を描かない・記録の守りを追加'],
@@ -1033,6 +1034,9 @@ function histSeg(){return `<h2>📈 ${esc(S.profile.name)}の記録</h2><div cla
   <button class="${S.histView==='growth'?'on':''}" onclick="S.histView='growth';renderHistory()">📊 科目ごと</button>
   <button class="${S.histView==='test'?'on':''}" onclick="S.histView='test';renderHistory()">📝 テスト</button></div>`}
 
+async function setSessionMode(id,mode){
+  try{ await api('set_session_mode',{session_id:id,answer_mode:mode}); toast(mode==='choice'?'「4択」にしました':'「自分で答えた」にしました'); const y=window.scrollY; await renderHistory(); window.scrollTo(0,y) }catch(e){toast(e.message)}
+}
 // ------------------------------------------------------------ 科目ごとの成長
 // 4択と「自分で答える」は難しさが違うので混ぜずに、どちらか1つで見る。
 // さかのぼって作った以前の記録(区別できない分)は「以前の記録」として別にする。
@@ -1134,7 +1138,11 @@ async function renderHistory(){
       <div class="row"><h3 class="grow" style="margin:0">${k.replace(/^(\d+)-0?(\d+)-0?(\d+)$/,'$2月$3日')}</h3><span class="muted small">${v.n}問 ・ 正解 ${v.ok}</span></div>
       <ul class="qlist">${v.list.map(x=>{const pct=x.total?Math.round(x.correct/x.total*100):0;const d=new Date(x.finished_at);return `<li><div class="grow">
         <div class="row"><b class="grow">${esc(x.deck_title||'教材')}</b><span class="chip ${pct>=80?'ok':pct<50?'rev':''}">${x.correct}/${x.total}（${pct}%）</span></div>
-        <div class="muted small">${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} ・ ${x.mode==='review'?'🔁 復習':'▶ 学習'}${x.subject?' ・ '+esc(x.subject):''}</div>
+        <div class="muted small">${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} ・ ${x.mode==='review'?'🔁 復習':'▶ 学習'}${x.subject?' ・ '+esc(x.subject):''}
+          ${x.answer_mode==='choice'?' ・ 4択':x.answer_mode==='flip'?' ・ 自分で答えた':''}</div>
+        ${x.deck_id&&x.mode!=='review'?(x.answer_mode==='mixed'
+          ?`<div class="row small" style="gap:6px;margin-top:4px"><span class="muted">答え方は？</span><button class="btn sm ghost" style="padding:3px 10px" onclick="setSessionMode(${x.id},'choice')">4択だった</button><button class="btn sm ghost" style="padding:3px 10px" onclick="setSessionMode(${x.id},'flip')">自分で答えた</button></div>`
+          :`<button class="btn sm ghost" style="padding:1px 8px;font-size:11px;margin-top:2px" onclick="setSessionMode(${x.id},'${x.answer_mode==='choice'?'flip':'choice'}')">答え方を「${x.answer_mode==='choice'?'自分で答えた':'4択'}」に直す</button>`):''}
         ${(x.wrong_items||[]).length?`<details class="small" style="margin-top:4px"><summary>まちがえた問題（${x.wrong_items.length}）</summary>
           ${x.wrong_items.map(w=>`<div style="margin:4px 0">・${esc(w.q)} → <b>${esc(w.a)}</b></div>`).join('')}</details>`:''}
       </div></li>`}).join('')}</ul></div>`).join('')
