@@ -183,8 +183,9 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
 <script>
 'use strict';
 // ------------------------------------------------------------ バージョン (変更のたびに上げる。api/flash.py の APP_VERSION と同じにする)
-const APP_VERSION='1.29';
+const APP_VERSION='1.30';
 const CHANGELOG=[
+  ['1.30','11/29','テスト日を科目ごとに入れられるように。ノルマは日付の近い科目から、科目ごとの直前チェックも'],
   ['1.29','11/29','テスト日のカウントダウンと今日のノルマ、直前チェック、忘れる前の確認、まちがえ方の分析（AI）、入力して答えるモード（設定でオン）を追加'],
   ['1.28','11/29','学習の記録の科目名を押すと、その科目の成長グラフに飛ぶように'],
   ['1.27','11/29','科目ごとの成長を1つのグラフにまとめ、答え方ごとに線の色を分けた（切り替えをやめた）'],
@@ -1167,23 +1168,29 @@ function examCardHtml(){
   const st=S.examStatus;
   if(!st) return `<p style="margin:0 0 10px"><button class="btn sm ghost" onclick="openExamEditor()">🗓 テスト日を登録すると、毎日のノルマが出ます</button></p>`;
   const left=Math.max(0,st.quota-st.done_today), pct=st.quota?Math.min(100,Math.round(st.done_today/st.quota*100)):100;
-  const title=st.days_left===0?`今日は${esc(st.exam.name)}本番！がんばって💪`:`${esc(st.exam.name)}まで あと <b style="font-size:24px;color:var(--accent)">${st.days_left}</b> 日`;
+  const nm=esc(st.exam.name)+(st.next_subject?`の <b>${esc(st.next_subject)}</b>`:'');
+  const title=st.days_left===0?`今日は${nm}本番！がんばって💪`:`${nm}まで あと <b style="font-size:24px;color:var(--accent)">${st.days_left}</b> 日`;
+  const md=d=>{const x=new Date(d+'T00:00:00');return `${x.getMonth()+1}/${x.getDate()}(${'日月火水木金土'[x.getDay()]})`};
+  const subjRows=st.per_subject&&st.subjects&&st.subjects.length>1?`<div style="margin:0 0 10px;border-top:1px dashed var(--line);padding-top:6px">${st.subjects.map(x=>{
+      const past=x.days_left<0, lab=past?'おわり':x.days_left===0?'今日！':`あと${x.days_left}日`;
+      return `<div class="row small" style="padding:3px 0;${past?'opacity:.45':''}"><span style="min-width:4em"><b>${esc(x.subject)}</b></span><span class="muted" style="min-width:5em">${md(x.date)}</span><span class="grow" style="white-space:nowrap">${lab}${x.days_left>0&&x.quota?` <span class="muted">(${Math.min(x.done_today,x.quota)}/${x.quota}枚)</span>`:''}</span>${past?'':`<button class="btn sm ghost" style="padding:2px 8px" onclick="startPlan('final',${esc(JSON.stringify(x.deck_ids))},'直前チェック（${esc(x.subject)}）')">🎯</button>`}</div>`}).join('')}</div>`:'';
   return `<div class="card" style="padding:12px 14px;border:2px solid #ffd9c7">
     <div class="row"><div class="grow">🗓 ${title}</div><button class="btn sm ghost" style="padding:3px 10px" onclick="openExamEditor(${st.exam.id})">編集</button></div>
     <div class="small muted" style="margin:2px 0 6px">範囲 ${st.deck_count}教材 ・ 覚えた ${st.mastered}/${st.total}枚</div>
     ${st.days_left>0?`<div class="row small"><b class="grow">今日のノルマ ${Math.min(st.done_today,st.quota)}/${st.quota}枚</b>${left?'':'<b style="color:var(--ok)">達成！🎉</b>'}</div>
       <div class="bar" style="height:10px;margin:4px 0 10px"><i style="width:${pct}%;background:${left?'var(--accent)':'var(--ok)'}"></i></div>`:''}
+    ${subjRows}
     <div class="row">
-      ${st.days_left>0&&st.remaining?`<button class="btn primary grow" onclick="startPlan('quota',${esc(JSON.stringify(st.deck_ids))},'今日のノルマ',${Math.max(left,10)})">▶ ${left?`今日の分をやる（${left}枚）`:'もっとやる'}</button>`:''}
+      ${st.days_left>0&&st.remaining?`<button class="btn primary grow" onclick="startPlan('quota',${esc(JSON.stringify(st.deck_ids))},'今日のノルマ',${Math.max(left,10)},${st.exam.id})">▶ ${left?`今日の分をやる（${left}枚）`:'もっとやる'}</button>`:''}
       <button class="btn grow" style="background:#fff6d6;color:#8a4b00" onclick="startPlan('final',${esc(JSON.stringify(st.deck_ids))},'直前チェック')">🎯 直前チェック${st.days_left<=1?'（今こそ！）':''}</button>
     </div>
     <button class="btn sm ghost block" style="margin-top:8px" onclick="openAnalysis({deck_ids:${esc(JSON.stringify(st.deck_ids))},label:${esc(JSON.stringify(st.exam.name))}})">🔍 まちがえ方を分析（AI）</button>
   </div>`;
 }
-async function startPlan(kind,deckIds,title,limit){
+async function startPlan(kind,deckIds,title,limit,examId){
   if(!deckIds||!deckIds.length) return toast('範囲の教材がありません');
   toast('問題を選んでいます…',1500);
-  try{ const r=await api('plan_cards',{profile_id:S.profile.id,deck_ids:deckIds,kind,limit:limit||30});
+  try{ const r=await api('plan_cards',{profile_id:S.profile.id,deck_ids:deckIds,kind,limit:limit||30,exam_id:examId||null});
     if(!r.cards.length) return toast(kind==='quota'?'覚えていないカードはありません！🎯 直前チェックをどうぞ':'出せる問題がありません');
     const so=S.studyOpts||(S.studyOpts={order:'seq',range:'all',reverse:false});
     startStudy(r.cards,{mode:'normal',title,...ansOpts(so.answer),pool:r.cards,rec:{profile_id:S.profile.id,deck_id:null,deck_title:title,subject:''},back:()=>showTab('decks')});
@@ -1202,14 +1209,31 @@ async function openExamEditor(id){
     <div style="max-height:30vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px">
       ${Object.entries(groups).map(([k,ds])=>`<div class="muted small" style="margin-top:6px">📁 ${esc(k)}</div>`+ds.map(d=>`<label class="row small" style="padding:3px 0"><input type="checkbox" class="exDeck" data-term="${esc(d.term||'')}" value="${d.id}" ${sel.has(d.id)?'checked':''}> ${esc(d.title)}</label>`).join('')).join('')}
     </div>
+    <label class="f">科目ごとの日程 <span class="muted small">（入れなければ全部「初日」になります）</span></label>
+    <div id="exSubj"></div>
     <div class="row" style="margin-top:14px">${ex?`<button class="btn danger" onclick="deleteExam(${ex.id})">削除</button>`:''}<button class="btn ghost grow" onclick="closeModal()">やめる</button><button class="btn primary grow" onclick="saveExam(${ex?ex.id:'null'})">保存</button></div>`);
-  if(!ex) examPreselect();
+  EXSD={...(ex&&ex.subject_dates||{})};
+  document.querySelectorAll('.exDeck').forEach(x=>x.addEventListener('change',drawExamSubjects));
+  if(!ex) examPreselect(); else drawExamSubjects();
 }
-function examPreselect(){const n=$('#exName').value;document.querySelectorAll('.exDeck').forEach(x=>{x.checked=x.dataset.term===n})}
+let EXSD={};
+function examSubjects(){
+  const ids=new Set([...document.querySelectorAll('.exDeck:checked')].map(x=>+x.value));
+  let ds=S.decks.filter(d=>ids.has(d.id)); if(!ds.length){const n=$('#exName').value; ds=S.decks.filter(d=>(d.term||'')===n)}
+  return [...new Set(ds.map(d=>(d.subject||'').trim()||'その他'))];
+}
+function drawExamSubjects(){
+  const box=$('#exSubj'); if(!box) return;
+  box.querySelectorAll('.exSd').forEach(x=>{EXSD[x.dataset.s]=x.value});
+  const subs=examSubjects();
+  box.innerHTML=subs.length?subs.map(k=>`<div class="row small" style="padding:3px 0"><span class="grow">${esc(k)}</span><input class="t exSd" type="date" data-s="${esc(k)}" value="${esc(EXSD[k]||'')}" style="width:auto;padding:6px 8px"></div>`).join(''):'<p class="muted small" style="margin:4px 0">範囲の教材を選ぶと、科目が出てきます</p>';
+}
+function examPreselect(){const n=$('#exName').value;document.querySelectorAll('.exDeck').forEach(x=>{x.checked=x.dataset.term===n});drawExamSubjects()}
 async function saveExam(id){
-  const date=$('#exDate').value; if(!date) return toast('日付を入れてください');
+  const sd={}; document.querySelectorAll('.exSd').forEach(x=>{if(x.value) sd[x.dataset.s]=x.value});
+  const date=$('#exDate').value||Object.values(sd).sort()[0]; if(!date) return toast('日付を入れてください');
   const ids=[...document.querySelectorAll('.exDeck:checked')].map(x=>+x.value);
-  try{ await api('exam_save',{exam_id:id,profile_id:S.profile.id,name:$('#exName').value,exam_date:date,deck_ids:ids}); closeModal(); toast('テスト日を保存しました'); renderDecks() }catch(e){toast(e.message)}
+  try{ await api('exam_save',{exam_id:id,profile_id:S.profile.id,name:$('#exName').value,exam_date:date,deck_ids:ids,subject_dates:sd}); closeModal(); toast('テスト日を保存しました'); renderDecks() }catch(e){toast(e.message)}
 }
 async function deleteExam(id){ if(!confirm('このテスト日を削除しますか？'))return; try{ await api('exam_delete',{exam_id:id}); closeModal(); renderDecks() }catch(e){toast(e.message)} }
 

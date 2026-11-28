@@ -179,6 +179,7 @@ create table if not exists public.flash_exams (
   name text not null default '',
   exam_date date not null,
   deck_ids jsonb not null default '[]'::jsonb,
+  subject_dates jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 create index if not exists flash_exams_profile on public.flash_exams(profile_id, exam_date);

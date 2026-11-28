@@ -32,7 +32,7 @@ MODEL_LABEL = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5"}
 def pick_model(key):
     return MODELS.get(key or "", MODEL)
 MOCK = os.environ.get("FLASH_MOCK") == "1"
-APP_VERSION = "1.29"  # 画面(index.html)の APP_VERSION と同じにする
+APP_VERSION = "1.30"  # 画面(index.html)の APP_VERSION と同じにする
 COMMIT = (os.environ.get("VERCEL_GIT_COMMIT_SHA") or "")[:7]  # ローカル確認用 (DB も AI も使わない)
 
 # 復習フラッシュ: 連続正解の回数 -> 次に出すまでの日数。3回連続正解で卒業。
@@ -1288,28 +1288,100 @@ def pick_cards(scoped, kind, limit):
     return todo[:limit]
 
 
+def _days_to(d):
+    return (datetime.fromisoformat(str(d)[:10]).date() - today_jst()).days
+
+
+def exam_dates(exam):
+    """科目ごとの日付 {科目: 'YYYY-MM-DD'} (指定のない科目は初日)。"""
+    return {k: str(v)[:10] for k, v in (exam.get("subject_dates") or {}).items() if v}
+
+
+def exam_last_date(exam):
+    return max([str(exam["exam_date"])[:10]] + list(exam_dates(exam).values()))
+
+
+def subj_of(d):
+    return (d.get("subject") or "").strip() or "その他"
+
+
 def exam_summary(s, profile_id, exam):
     scoped = scope_decks(s, profile_id, exam.get("deck_ids") or None, term=None if exam.get("deck_ids") else exam.get("name"))
-    cards = [c for _, cs in scoped for c in cs]
-    total = len(cards)
-    mastered = sum(1 for c in cards if is_mastered(c))
-    remaining = total - mastered
-    days_left = (datetime.fromisoformat(str(exam["exam_date"])).date() - today_jst()).days
-    if days_left <= 0:
-        quota = 0
-    else:
-        study_days = max(1, days_left - 1)  # 最後の1日は直前チェック用に空けておく
-        quota = min(remaining, max(5, -(-remaining // study_days))) if remaining else 0
+    dates = exam_dates(exam)
     start = datetime.combine(today_jst(), datetime.min.time(), JST).astimezone(timezone.utc).isoformat()
-    ids = {dd["id"] for dd, _ in scoped}
-    done_today = sum(1 for a in s.answers_since(profile_id, start) if a.get("deck_id") in ids)
-    return {"exam": exam, "days_left": days_left, "total": total, "mastered": mastered, "remaining": remaining,
-            "quota": quota, "done_today": done_today, "deck_ids": sorted(ids), "deck_count": len(ids)}
+    answered = {}
+    for a in s.answers_since(profile_id, start):
+        answered[a.get("deck_id")] = answered.get(a.get("deck_id"), 0) + 1
+    groups = {}
+    for dd, cs in scoped:
+        g = groups.setdefault(subj_of(dd), {"subject": subj_of(dd), "deck_ids": [], "cards": []})
+        g["deck_ids"].append(dd["id"])
+        g["cards"].extend(cs)
+    subjects = []
+    for g in groups.values():
+        date = dates.get(g["subject"]) or str(exam["exam_date"])[:10]
+        days_left = _days_to(date)
+        total = len(g["cards"])
+        mastered = sum(1 for c in g["cards"] if is_mastered(c))
+        remaining = total - mastered
+        if days_left <= 0:
+            quota = 0
+        else:
+            study_days = max(1, days_left - 1)  # 最後の1日は直前チェック用に空けておく
+            quota = min(remaining, max(3, -(-remaining // study_days))) if remaining else 0
+        done = sum(answered.get(i, 0) for i in g["deck_ids"])
+        subjects.append({"subject": g["subject"], "date": date, "days_left": days_left, "total": total,
+                         "mastered": mastered, "remaining": remaining, "quota": quota, "done_today": done,
+                         "deck_ids": sorted(g["deck_ids"])})
+    subjects.sort(key=lambda x: (x["date"], x["subject"]))
+    active = [x for x in subjects if x["days_left"] >= 0]  # 終わった科目は数えない
+    upcoming = [x for x in active if x["days_left"] >= 0]
+    nxt = upcoming[0] if upcoming else None
+    first_days = _days_to(exam["exam_date"])
+    ids = sorted(i for x in active for i in x["deck_ids"])
+    return {"exam": exam, "days_left": nxt["days_left"] if nxt else first_days, "first_days_left": first_days,
+            "next_subject": nxt["subject"] if (nxt and dates) else "", "per_subject": bool(dates),
+            "subjects": subjects,
+            "total": sum(x["total"] for x in active), "mastered": sum(x["mastered"] for x in active),
+            "remaining": sum(x["remaining"] for x in active), "quota": sum(x["quota"] for x in active),
+            "done_today": sum(min(x["done_today"], x["quota"]) if x["quota"] else 0 for x in active),
+            "deck_ids": ids, "deck_count": len(ids)}
+
+
+def plan_quota(s, profile_id, exam, limit):
+    """今日のノルマ: 日付の近い科目から、その科目の残りノルマ分ずつ選ぶ。"""
+    st = exam_summary(s, profile_id, exam)
+    out = []
+    for x in st["subjects"]:
+        if x["days_left"] <= 0 or not x["quota"]:
+            continue
+        need = max(0, x["quota"] - x["done_today"])
+        if need:
+            out += pick_cards(scope_decks(s, profile_id, x["deck_ids"]), "quota", need)
+    if len(out) < limit:  # ノルマ達成後の「もっとやる」
+        have = {c["id"] for c in out}
+        more = [c for c in pick_cards(scope_decks(s, profile_id, st["deck_ids"]), "quota", limit + len(out)) if c["id"] not in have]
+        out += more[:limit - len(out)]
+    return out[:max(limit, len(out))]
+
+
+def exam_chip(ex):
+    """トップに出す「次のテスト」。科目ごとの日付があれば、次の科目の日まで。"""
+    t = today_jst().isoformat()
+    dates = exam_dates(ex)
+    if dates:
+        up = sorted((d, k) for k, d in dates.items() if d >= t)
+        first = str(ex["exam_date"])[:10]
+        if first >= t and (not up or first < up[0][0]):
+            return {"name": ex["name"], "days_left": _days_to(first)}
+        if up:
+            return {"name": f"{ex['name']}（{up[0][1]}）", "days_left": _days_to(up[0][0])}
+    return {"name": ex["name"], "days_left": _days_to(ex["exam_date"])}
 
 
 def next_exam(s, profile_id):
     t = today_jst().isoformat()
-    ex = [e for e in s.exams_list(profile_id) if str(e["exam_date"]) >= t]
+    ex = [e for e in s.exams_list(profile_id) if exam_last_date(e) >= t]
     return ex[0] if ex else None
 
 
@@ -1471,7 +1543,7 @@ def handle(action, body, passcode):
             out.append(dict(p, deck_count=len(decks), card_count=sum(d["card_count"] for d in decks),
                             mastered=sum(d["stats"]["mastered"] for d in decks),
                             in_review=sum(d["stats"]["in_review"] for d in decks), due=len(due),
-                            next_exam={"name": ex["name"], "days_left": (datetime.fromisoformat(str(ex["exam_date"])).date() - today_jst()).days} if ex else None))
+                            next_exam=exam_chip(ex) if ex else None))
         return {"profiles": out}
 
     if action == "get_deck":
@@ -1568,7 +1640,14 @@ def handle(action, body, passcode):
         except ValueError:
             raise ApiError("テストの日付を入れてください")
         row = {"profile_id": int(body["profile_id"]), "name": name[:40], "exam_date": date[:10],
-               "deck_ids": [int(i) for i in (body.get("deck_ids") or [])]}
+               "deck_ids": [int(i) for i in (body.get("deck_ids") or [])], "subject_dates": {}}
+        for k, v in (body.get("subject_dates") or {}).items():
+            try:
+                row["subject_dates"][str(k)[:20]] = datetime.fromisoformat(str(v)[:10]).date().isoformat()
+            except ValueError:
+                pass
+        if row["subject_dates"]:
+            row["exam_date"] = min([row["exam_date"]] + list(row["subject_dates"].values()))
         s.exam_save(row, body.get("exam_id"))
         return {"ok": True}
 
@@ -1582,6 +1661,10 @@ def handle(action, body, passcode):
 
     if action == "plan_cards":
         kind = "final" if body.get("kind") == "final" else "quota"
+        if kind == "quota" and body.get("exam_id"):
+            ex = next((e for e in s.exams_list(body["profile_id"]) if e["id"] == int(body["exam_id"])), None)
+            if ex:
+                return {"cards": plan_quota(s, body["profile_id"], ex, max(1, min(200, int(body.get("limit") or 10))))}
         scoped = scope_decks(s, body["profile_id"], body.get("deck_ids") or None)
         return {"cards": pick_cards(scoped, kind, max(1, min(200, int(body.get("limit") or 30))))}
 
