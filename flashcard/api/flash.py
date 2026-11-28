@@ -31,7 +31,9 @@ MODEL_LABEL = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5"}
 
 def pick_model(key):
     return MODELS.get(key or "", MODEL)
-MOCK = os.environ.get("FLASH_MOCK") == "1"  # ローカル確認用 (DB も AI も使わない)
+MOCK = os.environ.get("FLASH_MOCK") == "1"
+APP_VERSION = "1.25"  # 画面(index.html)の APP_VERSION と同じにする
+COMMIT = (os.environ.get("VERCEL_GIT_COMMIT_SHA") or "")[:7]  # ローカル確認用 (DB も AI も使わない)
 
 # 復習フラッシュ: 連続正解の回数 -> 次に出すまでの日数。3回連続正解で卒業。
 REVIEW_INTERVAL_DAYS = {1: 1, 2: 3}
@@ -1631,7 +1633,7 @@ def explain_stream(s, body, detail):
 @app.route("/<path:path>", methods=["GET", "POST"])
 def api(path):
     if request.method == "GET":
-        return jsonify({"ok": True, "app": "flashcard", "mock": MOCK})
+        return jsonify({"ok": True, "app": "flashcard", "mock": MOCK, "version": APP_VERSION, "commit": COMMIT})
     body = request.get_json(silent=True) or {}
     if body.get("action") in ("explain", "explain_detail"):
         # 解説は、できた文字から順に送る

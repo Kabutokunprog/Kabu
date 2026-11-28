@@ -180,6 +180,22 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
 
 <script>
 'use strict';
+// ------------------------------------------------------------ バージョン (変更のたびに上げる。api/flash.py の APP_VERSION と同じにする)
+const APP_VERSION='1.25';
+const CHANGELOG=[
+  ['1.25','11/28','バージョン情報と「最近の変更」を表示'],
+  ['1.24','11/28','科目ごとの成長を答え方別（自分で答える／4択／以前の記録）に分け、小さくまとめた'],
+  ['1.23','11/28','成長グラフ：3問未満の点を描かない・記録の守りを追加'],
+  ['1.22','11/28','記録タブに「科目ごとの成長」グラフを追加'],
+  ['1.21','11/28','フラッシュカードにAI解説ボタン（もっと詳しく・作り直す）を追加'],
+  ['1.20','11/23','途中から再開の保存数を1人10個に'],
+  ['1.19','11/23','途中から再開の保存を軽くした'],
+  ['1.18','11/23','学習・復習を途中から再開できるように'],
+  ['1.17','11/23','出題順に「頻出順（テスト直前）」を追加'],
+  ['1.16','11/23','使う人のアイコンを絵文字・写真から選べるように'],
+  ['1.15','11/23','4択で答えるフラッシュカードを追加'],
+  ['1.14','11/23','問題づくりをサーバー側で進め、アプリを閉じても止まらないように'],
+];
 // ------------------------------------------------------------ 定数
 const GRADES = ['小5','小6','中1','中2','中3','高1','高2','高3','その他'];
 const TERMS = ['1学期中間','1学期期末','2学期中間','2学期期末','3学期期末(学年末)','前期中間','前期期末','後期中間','後期期末','小テスト・その他'];
@@ -289,7 +305,8 @@ async function goTop(){
         ${p.due?`<span class="chip rev">今日の復習 ${p.due}枚</span>`:`<span class="chip ok">復習なし</span>`}
       </span><span style="font-size:24px;color:var(--muted)">›</span>
     </button>`).join('')}</div>
-    <p class="center" style="margin-top:28px"><button class="btn ghost sm" onclick="logout()">ログアウト</button></p>`);
+    <p class="center" style="margin-top:28px"><button class="btn ghost sm" onclick="logout()">ログアウト</button></p>
+    <p class="center muted" style="font-size:11px">バージョン ${APP_VERSION}</p>`);
 }
 function enterProfile(id){
   S.profile=S.profiles.find(p=>p.id===id); if(!S.profile) return goTop();
@@ -1427,7 +1444,18 @@ async function renderSettings(){
       <button class="btn block" style="margin-top:8px" onclick="changePass()">変更する</button>
       <p class="muted small">変えたら、家族のほかのスマホでも新しい合言葉で入り直してください。</p></div>
     <div class="card"><button class="btn block" onclick="goTop()">👥 使う人を切り替える</button>
-      <button class="btn ghost block" style="margin-top:8px" onclick="logout()">ログアウト</button></div>`);
+      <button class="btn ghost block" style="margin-top:8px" onclick="logout()">ログアウト</button></div>
+    <div class="card"><div class="row"><h3 class="grow" style="margin:0">ℹ️ バージョン ${APP_VERSION}</h3><span class="small muted" id="srvVer"></span></div>
+      <p class="muted small" style="margin:4px 0 8px">最近の変更</p>
+      <ul style="margin:0;padding-left:0;list-style:none">${CHANGELOG.map(([v,d,t])=>`<li class="small" style="padding:4px 0;border-top:1px solid var(--line)"><b>${v}</b> <span class="muted">(${d})</span> ${esc(t)}</li>`).join('')}</ul></div>`);
+  checkServerVersion();
+}
+// サーバーの版と画面の版を比べる (ずれていたら、古い画面を開いている)
+async function serverVersion(){try{const r=await fetch(API+'?v='+Date.now(),{cache:'no-store'});return await r.json()}catch(e){return null}}
+async function checkServerVersion(){
+  const v=await serverVersion(), el=$('#srvVer'); if(!el||!v) return;
+  if(v.version&&v.version!==APP_VERSION) el.innerHTML=`<span style="color:var(--ng)">⚠️ 古い版です（最新 ${esc(v.version)}）。アプリを閉じて開き直してください</span>`;
+  else el.textContent=`最新です${v.commit?'（'+v.commit+'）':''}`;
 }
 async function saveProfile(id){
   try{ await api('update_profile',{profile_id:id,name:$('#pn'+id).value});
