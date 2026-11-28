@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- 勤怠記録 Index v1.3（2026/11/28） -->
+<!-- 勤怠記録 Index v1.2（2026/11/28） -->
 <html>
 <head>
 <base target="_top">
@@ -235,7 +235,7 @@
 </div>
 
 <script>
-  var INDEX_VERSION = 'v1.3';  // この画面（Index）の版
+  var INDEX_VERSION = 'v1.2';  // この画面（Index）の版
   var D = null;            // ホームのデータ
   var curMonth = null;     // 勤怠表で表示中の月
   var monthList = [];
@@ -285,10 +285,9 @@
 
   function renderHome(d) {
     D = d;
-    // 画面は自動で最新になる。本体（コード.gs）は v1.3 以上なら OK
-    var core = d.version || 'v1.1以前';
-    var coreOk = /^v(\d+)\.(\d+)/.test(core) && (Number(RegExp.$1) > 1 || Number(RegExp.$2) >= 3);
-    $('ver').innerHTML = '勤怠記録 ' + INDEX_VERSION + (coreOk ? '' : '<br><span style="color:var(--red)">本体が古い版です（' + core + '）</span>');
+    var same = d.version === INDEX_VERSION;
+    $('ver').innerHTML = same ? '勤怠記録 ' + INDEX_VERSION
+      : '<span style="color:var(--red)">⚠️ 版がそろっていません（コード.gs: ' + (d.version || '古い版') + ' ／ Index: ' + INDEX_VERSION + '）</span>';
     $('today-label').innerText = d.todayLabel;
     var done = d.todayRecords.length > 0;
 
