@@ -32,7 +32,7 @@ MODEL_LABEL = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5"}
 def pick_model(key):
     return MODELS.get(key or "", MODEL)
 MOCK = os.environ.get("FLASH_MOCK") == "1"
-APP_VERSION = "1.33"  # 画面(index.html)の APP_VERSION と同じにする
+APP_VERSION = "1.34"  # 画面(index.html)の APP_VERSION と同じにする
 COMMIT = (os.environ.get("VERCEL_GIT_COMMIT_SHA") or "")[:7]  # ローカル確認用 (DB も AI も使わない)
 
 # 復習フラッシュ: 連続正解の回数 -> 次に出すまでの日数。3回連続正解で卒業。

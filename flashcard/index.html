@@ -183,8 +183,9 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
 <script>
 'use strict';
 // ------------------------------------------------------------ バージョン (変更のたびに上げる。api/flash.py の APP_VERSION と同じにする)
-const APP_VERSION='1.33';
+const APP_VERSION='1.34';
 const CHANGELOG=[
+  ['1.34','11/29','テスト日のカードの「まちがえ方の分析」を、全部まとめてではなくテスト科目ごと（化学・生物など）に'],
   ['1.33','11/29','教材タブのいちばん上に「📌 次のテスト」フォルダを置き、1回で開けるように。フォルダも次のテストを先頭に'],
   ['1.32','11/29','成長グラフと分析を、理科は化学・生物などテスト科目ごとに分けた。同じ科目に教材が複数あれば（地理の教科書とプリントなど）教材ごとに線の色を分けた'],
   ['1.31','11/29','テスト日を教材ごとにも分けられるように（理科の化学・生物など、同じ科目で日がちがうとき）'],
@@ -1213,9 +1214,13 @@ function examCardHtml(){
   const nm=esc(st.exam.name)+(st.next_subject?`の <b>${esc(st.next_subject)}</b>`:'');
   const title=st.days_left===0?`今日は${nm}本番！がんばって💪`:`${nm}まで あと <b style="font-size:24px;color:var(--accent)">${st.days_left}</b> 日`;
   const md=d=>{const x=new Date(d+'T00:00:00');return `${x.getMonth()+1}/${x.getDate()}(${'日月火水木金土'[x.getDay()]})`};
-  const subjRows=st.per_subject&&st.subjects&&st.subjects.length>1?`<div style="margin:0 0 10px;border-top:1px dashed var(--line);padding-top:6px">${st.subjects.map(x=>{
+  // 科目ごと(理科は化学・生物など)の行: 日程・ノルマ・🎯直前チェック・🔍分析
+  const multi=st.subjects&&st.subjects.length>1;
+  const subjRows=multi?`<div style="margin:0 0 10px;border-top:1px dashed var(--line);padding-top:6px">${st.subjects.map(x=>{
       const past=x.days_left<0, lab=past?'おわり':x.days_left===0?'今日！':`あと${x.days_left}日`;
-      return `<div class="row small" style="padding:3px 0;${past?'opacity:.45':''}"><span style="min-width:4em"><b>${esc(x.subject)}</b></span><span class="muted" style="min-width:5em">${md(x.date)}</span><span class="grow" style="white-space:nowrap">${lab}${x.days_left>0&&x.quota?` <span class="muted">(${Math.min(x.done_today,x.quota)}/${x.quota}枚)</span>`:''}</span>${past?'':`<button class="btn sm ghost" style="padding:2px 8px" onclick="startPlan('final',${esc(JSON.stringify(x.deck_ids))},'直前チェック（${esc(x.subject)}）')">🎯</button>`}</div>`}).join('')}</div>`:'';
+      const sb='class="btn sm ghost" style="padding:2px 7px;margin-left:4px"';
+      return `<div class="row small" style="padding:3px 0"><span style="min-width:3.6em;${past?'opacity:.45':''}"><b>${esc(x.subject)}</b></span>${st.per_subject?`<span class="muted" style="min-width:4.8em;${past?'opacity:.45':''}">${md(x.date)}</span>`:''}<span class="grow" style="white-space:nowrap;${past?'opacity:.45':''}">${lab}${x.days_left>0&&x.quota?` <span class="muted">(${Math.min(x.done_today,x.quota)}/${x.quota}枚)</span>`:''}</span>${past?'':`<button ${sb} onclick="startPlan('final',${esc(JSON.stringify(x.deck_ids))},'直前チェック（${esc(x.subject)}）')">🎯</button>`}<button ${sb} onclick="openAnalysis({deck_ids:${esc(JSON.stringify(x.deck_ids))},label:${esc(JSON.stringify(x.subject))}})">🔍</button></div>`}).join('')}
+      <div class="muted" style="font-size:10px;text-align:right">🎯 直前チェック　🔍 まちがえ方の分析（AI）</div></div>`:'';
   return `<div class="card" style="padding:12px 14px;border:2px solid #ffd9c7">
     <div class="row"><div class="grow">🗓 ${title}</div><button class="btn sm ghost" style="padding:3px 10px" onclick="openExamEditor(${st.exam.id})">編集</button></div>
     <div class="small muted" style="margin:2px 0 6px">範囲 ${st.deck_count}教材 ・ 覚えた ${st.mastered}/${st.total}枚</div>
@@ -1226,7 +1231,7 @@ function examCardHtml(){
       ${st.days_left>0&&st.remaining?`<button class="btn primary grow" onclick="startPlan('quota',${esc(JSON.stringify(st.deck_ids))},'今日のノルマ',${Math.max(left,10)},${st.exam.id})">▶ ${left?`今日の分をやる（${left}枚）`:'もっとやる'}</button>`:''}
       <button class="btn grow" style="background:#fff6d6;color:#8a4b00" onclick="startPlan('final',${esc(JSON.stringify(st.deck_ids))},'直前チェック')">🎯 直前チェック${st.days_left<=1?'（今こそ！）':''}</button>
     </div>
-    <button class="btn sm ghost block" style="margin-top:8px" onclick="openAnalysis({deck_ids:${esc(JSON.stringify(st.deck_ids))},label:${esc(JSON.stringify(st.exam.name))}})">🔍 まちがえ方を分析（AI）</button>
+    ${multi?'':`<button class="btn sm ghost block" style="margin-top:8px" onclick="openAnalysis({deck_ids:${esc(JSON.stringify(st.deck_ids))},label:${esc(JSON.stringify((st.subjects[0]||{}).subject||st.exam.name))}})">🔍 まちがえ方を分析（AI）</button>`}
   </div>`;
 }
 async function startPlan(kind,deckIds,title,limit,examId){
