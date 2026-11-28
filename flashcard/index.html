@@ -183,8 +183,9 @@ pre.src{white-space:pre-wrap;font-size:13px;background:var(--chip);border-radius
 <script>
 'use strict';
 // ------------------------------------------------------------ バージョン (変更のたびに上げる。api/flash.py の APP_VERSION と同じにする)
-const APP_VERSION='1.31';
+const APP_VERSION='1.32';
 const CHANGELOG=[
+  ['1.32','11/29','成長グラフと分析を、理科は化学・生物などテスト科目ごとに分けた。同じ科目に教材が複数あれば（地理の教科書とプリントなど）教材ごとに線の色を分けた'],
   ['1.31','11/29','テスト日を教材ごとにも分けられるように（理科の化学・生物など、同じ科目で日がちがうとき）'],
   ['1.30','11/29','テスト日を科目ごとに入れられるように。ノルマは日付の近い科目から、科目ごとの直前チェックも'],
   ['1.29','11/29','テスト日のカウントダウンと今日のノルマ、直前チェック、忘れる前の確認、まちがえ方の分析（AI）、入力して答えるモード（設定でオン）を追加'],
@@ -1113,44 +1114,59 @@ function miniChart(labels,series){
   labels.forEach((t,i)=>{if(i===0||i===n-1||n<=5)g+=`<text x="${X(i)}" y="${H-3}" font-size="8" text-anchor="${i===0&&n>1?'start':i===n-1&&n>1?'end':'middle'}" fill="#8a91a3">${esc(t)}</text>`});
   for(const sr of series){
     const pts=sr.values.map((v,i)=>v==null?null:[X(i),Y(v),v]).filter(Boolean); if(!pts.length) continue;
-    if(pts.length>1) g+=`<polyline fill="none" stroke="${sr.color}" stroke-width="2" stroke-linejoin="round" points="${pts.map(p=>p[0]+','+p[1]).join(' ')}"/>`;
+    if(pts.length>1) g+=`<polyline fill="none" stroke="${sr.color}" stroke-width="2" stroke-linejoin="round"${sr.dash?` stroke-dasharray="${sr.dash}"`:''} points="${pts.map(p=>p[0]+','+p[1]).join(' ')}"/>`;
     pts.forEach(p=>{g+=`<circle cx="${p[0]}" cy="${p[1]}" r="2.2" fill="${sr.color}"/>`});
     const l=pts[pts.length-1], left=l[0]<30; g+=`<text x="${left?l[0]+3:Math.min(l[0]+1,W-R)}" y="${l[1]-4}" font-size="8.5" font-weight="700" fill="${sr.color}" text-anchor="${left?'start':'end'}">${l[2]}%</text>`;
   }
   return g+'</svg>';
 }
+const DECK_COLORS=['#6366f1','#e11d48','#0ea5e9','#a855f7','#ca8a04','#14b8a6']; // 答え方の色(緑・橙・青)とかぶらない色
+const MODE_DASH={flip:'',type:'5 2',choice:'2 2',mixed:'1 3'};
+const MODE_SHORT={flip:'自分で',type:'入力',choice:'4択',mixed:'以前'};
 async function renderGrowth(){
   let g; try{ g=await api('growth',{profile_id:S.profile.id}) }catch(e){ setView(histSeg()+`<div class="card">${esc(e.message)}</div>`); return }
   const mOf=r=>['choice','mixed','type'].includes(r.ans_mode)?r.ans_mode:'flip';
-  const subs={}, get=k=>subs[k]=subs[k]||{days:{},att:{},n:0,used:new Set()};
-  g.daily.forEach(r=>{const x=get(r.subject||'その他'), m=mOf(r);(x.days[r.d]=x.days[r.d]||{})[m]={n:r.n,ok:r.ok};x.n+=r.n;x.used.add(m)});
-  g.attempts.forEach(r=>{const x=get(r.subject||'その他');(x.att[r.a]=x.att[r.a]||{})[mOf(r)]={n:r.n,ok:r.ok}});
+  // 科目 (理科は 化学・生物 などテスト科目ごと) → 教材 × 答え方 の線
+  const subs={}, get=k=>subs[k]=subs[k]||{days:{},att:{},n:0,used:new Set(),decks:{},sk:{}};
+  const skOf=(x,r)=>{const dk=String(r.deck_id??'x'), m=mOf(r); x.decks[dk]=x.decks[dk]||{title:r.deck_title||'',n:0}; x.used.add(m); const k=dk+'|'+m; x.sk[k]={dk,m}; return k};
+  g.daily.forEach(r=>{const x=get(r.subject||'その他'), k=skOf(x,r);(x.days[r.d]=x.days[r.d]||{})[k]={n:r.n,ok:r.ok};x.n+=r.n;x.decks[String(r.deck_id??'x')].n+=r.n});
+  g.attempts.forEach(r=>{const x=get(r.subject||'その他'), k=skOf(x,r);(x.att[r.a]=x.att[r.a]||{})[k]={n:r.n,ok:r.ok}});
   const names=Object.keys(subs).sort((a,b)=>subs[b].n-subs[a].n);
   const usedAll=new Set(); names.forEach(n=>subs[n].used.forEach(m=>usedAll.add(m)));
+  const anyMulti=names.some(n=>Object.keys(subs[n].decks).length>1);
   const rows=names.map(name=>{
-    const x=subs[name], m=(g.mastery||{})[name]||{cards:0,mastered:0}, modes=GMODES.filter(([k])=>x.used.has(k));
-    // 日ごと(期間が長ければ週ごと)。答え方はまとめずに、それぞれの線にする
+    const x=subs[name], m=(g.mastery||{})[name]||{cards:0,mastered:0};
+    const dks=Object.keys(x.decks).sort((a,b)=>x.decks[b].n-x.decks[a].n), multi=dks.length>1;
+    const dcol={}; dks.forEach((d,i)=>dcol[d]=DECK_COLORS[i%DECK_COLORS.length]);
+    const modeOrder=GMODES.map(([k])=>k);
+    const keys=Object.keys(x.sk).sort((a,b)=>dks.indexOf(x.sk[a].dk)-dks.indexOf(x.sk[b].dk)||modeOrder.indexOf(x.sk[a].m)-modeOrder.indexOf(x.sk[b].m));
+    const styleOf=k=>{const {dk,m}=x.sk[k]; return multi?{color:dcol[dk],dash:MODE_DASH[m]}:{color:(GMODES.find(z=>z[0]===m)||[])[2],dash:''}};
     const days=Object.keys(x.days).sort(); let buckets=[], weekly=false;
     if(days.length){
       weekly=(new Date(days[days.length-1])-new Date(days[0]))/864e5>13;
       const keyOf=d=>{if(!weekly)return d;const t=new Date(d+'T00:00:00');t.setDate(t.getDate()-((t.getDay()+6)%7));return dayKey(t)};
       const bm={}; days.forEach(d=>{const k=keyOf(d), b=bm[k]=bm[k]||{};
-        Object.entries(x.days[d]).forEach(([md,v])=>{const t=b[md]=b[md]||{n:0,ok:0};t.n+=v.n;t.ok+=v.ok})});
+        Object.entries(x.days[d]).forEach(([sk,v])=>{const t=b[sk]=b[sk]||{n:0,ok:0};t.n+=v.n;t.ok+=v.ok})});
       buckets=Object.keys(bm).sort().map(k=>({label:k.replace(/^\d+-0?(\d+)-0?(\d+)$/,'$1/$2'),v:bm[k]}))
         .filter(b=>Object.values(b.v).some(t=>t.n>=MIN_N));
     }
     const atts=[1,2,3,4,5].map(a=>x.att[a]||{});
-    const attSeries=modes.map(([k,,c])=>({k,color:c,values:atts.map(a=>pctOf(a[k]))})).filter(sr=>sr.values.some(v=>v!=null));
-    const daySeries=modes.map(([k,,c])=>({k,color:c,values:buckets.map(b=>pctOf(b.v[k]))})).filter(sr=>sr.values.some(v=>v!=null));
+    const attSeries=keys.map(k=>({k,...styleOf(k),values:atts.map(a=>pctOf(a[k]))})).filter(sr=>sr.values.some(v=>v!=null));
+    const daySeries=keys.map(k=>({k,...styleOf(k),values:buckets.map(b=>pctOf(b.v[k]))})).filter(sr=>sr.values.some(v=>v!=null));
     const attOk=attSeries.some(sr=>sr.values.filter(v=>v!=null).length>=2)||(attSeries.length>=2);
-    // 数字: 答え方ごとに「いま」と「伸び」
     const nowOf=k=>{for(let i=buckets.length-1;i>=0;i--){const v=pctOf(buckets[i].v[k]);if(v!=null)return v}return null};
     const growOf=k=>{const v=atts.map(a=>pctOf(a[k])).filter(z=>z!=null);return v.length>=2?v[v.length-1]-v[0]:null};
-    const stat=modes.map(([k,t,c])=>{const now=nowOf(k), gr=growOf(k);if(now==null&&gr==null)return '';
-      return `<span style="white-space:nowrap"><b style="color:${c}">●</b>${k==='mixed'?'以前':k==='choice'?'4択':k==='type'?'入力':'自分で'} <b>${now!=null?now+'%':'—'}</b>${gr!=null?` <span style="color:${gr>=0?'var(--ok)':'var(--ng)'}">${gr>=0?'+':''}${gr}</span>`:''}</span>`}).join(' ');
+    const modesOfDeck=dk=>keys.filter(k=>x.sk[k].dk===dk).length;
+    const short=t=>t.length>9?t.slice(0,9)+'…':t;
+    const stat=keys.map(k=>{const now=nowOf(k), gr=growOf(k);if(now==null&&gr==null)return '';
+      const {dk,m}=x.sk[k], st=styleOf(k);
+      const lab=multi?esc(short(x.decks[dk].title))+(modesOfDeck(dk)>1||m!=='flip'?`<span class="muted">(${MODE_SHORT[m]})</span>`:''):MODE_SHORT[m];
+      return `<span style="white-space:nowrap"><b style="color:${st.color}">${multi&&st.dash?'┅':'●'}</b>${lab} <b>${now!=null?now+'%':'—'}</b>${gr!=null?` <span style="color:${gr>=0?'var(--ok)':'var(--ng)'}">${gr>=0?'+':''}${gr}</span>`:''}</span>`}).join(' ');
+    const legend=multi?`<div style="display:flex;flex-wrap:wrap;gap:2px 10px;font-size:11px;margin:2px 0">${dks.map(d=>`<span><b style="color:${dcol[d]}">━</b> ${esc(x.decks[d].title)}</span>`).join('')}</div>`:'';
     return `<div class="card" data-subject="${esc(name)}" style="padding:10px 12px;margin-bottom:8px;scroll-margin-top:110px">
       <div class="row" style="gap:6px"><b>${esc(name)}</b><span class="muted small grow">解いた数 ${x.n}問</span><span class="small muted">覚えた ${m.cards?Math.round(m.mastered/m.cards*100)+'%':'—'}</span>
         <button class="subj-link" onclick="openAnalysis({subject:${esc(JSON.stringify(name))}})">🔍 分析</button></div>
+      ${legend}
       <div class="small" style="display:flex;flex-wrap:wrap;gap:4px 10px;margin:2px 0 4px">${stat}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div><div class="muted" style="font-size:10px">同じ問題・何回目</div>${attOk?miniChart(['1回','2','3','4','5回〜'],attSeries):'<div class="muted" style="font-size:11px;padding:14px 0">2回以上解くと出ます</div>'}</div>
@@ -1158,9 +1174,10 @@ async function renderGrowth(){
       </div></div>`;
   }).join('');
   const since=g.since?new Date(g.since):null;
+  const dashSample=(m)=>`<svg width="22" height="6" style="vertical-align:middle"><line x1="0" x2="22" y1="3" y2="3" stroke="#5b6275" stroke-width="2"${MODE_DASH[m]?` stroke-dasharray="${MODE_DASH[m]}"`:''}/></svg>`;
   setView(histSeg()+`
-    <div class="small" style="display:flex;flex-wrap:wrap;gap:4px 12px;margin:0 0 4px">${GMODES.filter(([k])=>usedAll.has(k)).map(([,t,c])=>`<span><b style="color:${c}">━</b> ${t}</span>`).join('')}</div>
-    <p class="muted" style="font-size:11px;margin:0 0 8px">やった分は全部まとめて表示し、答え方ごとに線の色を分けています（4択は自分で答えるより高めに出やすいので、同じ色どうしで比べてください）。数字は「いまの正答率」と、同じ問題での伸び（1回目→最近）です。${since?` ${since.getMonth()+1}/${since.getDate()}から`:''}</p>
+    <div class="small" style="display:flex;flex-wrap:wrap;gap:4px 12px;margin:0 0 4px">${GMODES.filter(([k])=>usedAll.has(k)).map(([k,t,c])=>`<span><b style="color:${c}">━</b>${anyMulti?dashSample(k):''} ${t}</span>`).join('')}</div>
+    <p class="muted" style="font-size:11px;margin:0 0 8px">やった分は全部まとめて表示し、答え方ごとに線の色を分けています${anyMulti?'。教材が2つ以上ある科目は<b>教材ごとに色</b>を分け、答え方は<b>線の形</b>（実線＝自分で答える・点線＝4択 など）で分けています':''}（4択は自分で答えるより高めに出やすいので、同じ答え方どうしで比べてください）。数字は「いまの正答率」と、同じ問題での伸び（1回目→最近）です。理科・社会は、教材名から化学・生物などテストごとの科目に分けています。${since?` ${since.getMonth()+1}/${since.getDate()}から`:''}</p>
     ${names.length?rows:'<div class="card center small">まだ記録がありません。教材で問題を解くと、科目ごとの成長がここに出ます。</div>'}`);
 }
 
@@ -1218,10 +1235,13 @@ async function openExamEditor(id){
   if(!ex) examPreselect(); else drawExamSubjects();
 }
 let EXSD={};
+// テスト科目: 理科・社会は教材名から 化学・生物 などに分ける (api/flash.py の subj_of と同じ)
+const SUB_SUBJECTS={'理科':['物理','化学','生物','地学'],'社会':['地理','歴史','公民']};
+function testSubject(d){const s=(d.subject||'').trim()||'その他';return (SUB_SUBJECTS[s]||[]).find(k=>(d.title||'').includes(k))||s}
 function examSubjects(){
   const ids=new Set([...document.querySelectorAll('.exDeck:checked')].map(x=>+x.value));
   let ds=S.decks.filter(d=>ids.has(d.id)); if(!ds.length){const n=$('#exName').value; ds=S.decks.filter(d=>(d.term||'')===n)}
-  const g={}; ds.forEach(d=>{const k=(d.subject||'').trim()||'その他';(g[k]=g[k]||[]).push(d)}); return g;
+  const g={}; ds.forEach(d=>{const k=testSubject(d);(g[k]=g[k]||[]).push(d)}); return g;
 }
 let EXSPLIT={};
 function examSplit(k){ document.querySelectorAll('.exSd').forEach(x=>{EXSD[x.dataset.s]=x.value}); EXSPLIT[k]=!EXSPLIT[k]; drawExamSubjects(true) }
@@ -1311,7 +1331,7 @@ async function renderHistory(){
       <div class="row"><h3 class="grow" style="margin:0">${k.replace(/^(\d+)-0?(\d+)-0?(\d+)$/,'$2月$3日')}</h3><span class="muted small">${v.n}問 ・ 正解 ${v.ok}</span></div>
       <ul class="qlist">${v.list.map(x=>{const pct=x.total?Math.round(x.correct/x.total*100):0;const d=new Date(x.finished_at);return `<li><div class="grow">
         <div class="row"><b class="grow">${esc(x.deck_title||'教材')}</b><span class="chip ${pct>=80?'ok':pct<50?'rev':''}">${x.correct}/${x.total}（${pct}%）</span></div>
-        <div class="muted small">${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} ・ ${x.mode==='review'?'🔁 復習':'▶ 学習'}${x.subject?` ・ <button class="subj-link" onclick="openSubjectGrowth(${esc(JSON.stringify(x.subject))})">📊 ${esc(x.subject)} ›</button>`:''}
+        <div class="muted small">${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} ・ ${x.mode==='review'?'🔁 復習':'▶ 学習'}${x.subject?(ts=>` ・ <button class="subj-link" onclick="openSubjectGrowth(${esc(JSON.stringify(ts))})">📊 ${esc(ts)} ›</button>`)(testSubject({subject:x.subject,title:x.deck_title})):''}
           ${x.answer_mode==='choice'?' ・ 4択':x.answer_mode==='flip'?' ・ 自分で答えた':''}</div>
         ${x.deck_id&&x.mode!=='review'?(x.answer_mode==='mixed'
           ?`<div class="row small" style="gap:6px;margin-top:4px"><span class="muted">答え方は？</span><button class="btn sm ghost" style="padding:3px 10px" onclick="setSessionMode(${x.id},'choice')">4択だった</button><button class="btn sm ghost" style="padding:3px 10px" onclick="setSessionMode(${x.id},'flip')">自分で答えた</button></div>`

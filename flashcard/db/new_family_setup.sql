@@ -115,6 +115,20 @@ language sql stable set search_path = public as $$
   );
 $$;
 
+-- 教材ごとにも分けた版 (アプリはこちらを使う)
+create or replace function public.flash_growth2(pid bigint) returns json
+language sql stable set search_path = public as $$
+  select json_build_object(
+    'daily', (select coalesce(json_agg(x order by x.d), '[]'::json) from (
+        select deck_id, subject, ans_mode, (answered_at at time zone 'Asia/Tokyo')::date as d, count(*) as n, count(*) filter (where correct) as ok
+        from public.flash_answers where profile_id = pid group by 1, 2, 3, 4) x),
+    'attempts', (select coalesce(json_agg(y), '[]'::json) from (
+        select deck_id, subject, ans_mode, least(attempt_no, 5) as a, count(*) as n, count(*) filter (where correct) as ok
+        from public.flash_answers where profile_id = pid group by 1, 2, 3, 4) y),
+    'since', (select min(answered_at) from public.flash_answers where profile_id = pid)
+  );
+$$;
+
 -- テスト
 create table if not exists public.flash_tests (
   id bigint generated always as identity primary key,

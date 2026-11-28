@@ -32,7 +32,7 @@ MODEL_LABEL = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5"}
 def pick_model(key):
     return MODELS.get(key or "", MODEL)
 MOCK = os.environ.get("FLASH_MOCK") == "1"
-APP_VERSION = "1.31"  # 画面(index.html)の APP_VERSION と同じにする
+APP_VERSION = "1.32"  # 画面(index.html)の APP_VERSION と同じにする
 COMMIT = (os.environ.get("VERCEL_GIT_COMMIT_SHA") or "")[:7]  # ローカル確認用 (DB も AI も使わない)
 
 # 復習フラッシュ: 連続正解の回数 -> 次に出すまでの日数。3回連続正解で卒業。
@@ -255,7 +255,7 @@ class SupaStore:
             self._req("POST", "flash_answers", body=rows, prefer="return=minimal")
 
     def growth(self, profile_id):
-        return self.rpc("flash_growth", {"pid": int(profile_id)})
+        return self.rpc("flash_growth2", {"pid": int(profile_id)})
 
     # テスト日
     def exams_list(self, profile_id):
@@ -688,12 +688,12 @@ class MemoryStore:
         daily, att = {}, {}
         for r in rows:
             d = (datetime.fromisoformat(r["answered_at"]) + timedelta(hours=9)).date().isoformat()
-            k = (r["subject"], r["ans_mode"], d)
+            k = (r.get("deck_id"), r["subject"], r["ans_mode"], d)
             daily.setdefault(k, [0, 0]); daily[k][0] += 1; daily[k][1] += 1 if r["correct"] else 0
-            k2 = (r["subject"], r["ans_mode"], min(r["attempt_no"], 5))
+            k2 = (r.get("deck_id"), r["subject"], r["ans_mode"], min(r["attempt_no"], 5))
             att.setdefault(k2, [0, 0]); att[k2][0] += 1; att[k2][1] += 1 if r["correct"] else 0
-        return {"daily": [{"subject": a, "ans_mode": b, "d": c, "n": v[0], "ok": v[1]} for (a, b, c), v in sorted(daily.items(), key=lambda x: x[0][2])],
-                "attempts": [{"subject": a, "ans_mode": b, "a": c, "n": v[0], "ok": v[1]} for (a, b, c), v in att.items()],
+        return {"daily": [{"deck_id": z, "subject": a, "ans_mode": b, "d": c, "n": v[0], "ok": v[1]} for (z, a, b, c), v in sorted(daily.items(), key=lambda x: x[0][3])],
+                "attempts": [{"deck_id": z, "subject": a, "ans_mode": b, "a": c, "n": v[0], "ok": v[1]} for (z, a, b, c), v in att.items()],
                 "since": min((r["answered_at"] for r in rows), default=None)}
 
     def list_sessions(self, profile_id, limit=300):
@@ -1254,7 +1254,7 @@ def scope_decks(s, profile_id, deck_ids=None, term=None, subject=None):
     elif term:
         decks = [d for d in decks if (d.get("term") or "") == term]
     elif subject:
-        decks = [d for d in decks if (d.get("subject") or "その他") == subject]
+        decks = [d for d in decks if subj_of(d) == subject]
     out = []
     for d in decks:
         dd, cards = s.get_deck(d["id"])
@@ -1301,8 +1301,17 @@ def exam_last_date(exam):
     return max([str(exam["exam_date"])[:10]] + list(exam_dates(exam).values()))
 
 
+SUB_SUBJECTS = {"理科": ["物理", "化学", "生物", "地学"], "社会": ["地理", "歴史", "公民"]}
+
+
 def subj_of(d):
-    return (d.get("subject") or "").strip() or "その他"
+    """テスト科目。理科・社会は教材名から 化学・生物 などに分ける (別々のテストなので)。"""
+    subj = (d.get("subject") or "").strip() or "その他"
+    title = d.get("title") or ""
+    for k in SUB_SUBJECTS.get(subj, []):
+        if k in title:
+            return k
+    return subj
 
 
 def exam_summary(s, profile_id, exam):
@@ -1623,12 +1632,21 @@ def handle(action, body, passcode):
     if action == "growth":
         g = s.growth(body["profile_id"]) or {}
         decks, prog = s.list_decks(body["profile_id"])
-        mastery = {}
+        mastery, info = {}, {}
         for d in deck_stats(decks, prog):
-            m = mastery.setdefault(d.get("subject") or "その他", {"cards": 0, "mastered": 0})
+            info[d["id"]] = {"subject": subj_of(d), "title": d.get("title") or ""}
+            m = mastery.setdefault(subj_of(d), {"cards": 0, "mastered": 0})
             m["cards"] += d["card_count"]
             m["mastered"] += d["stats"]["mastered"]
-        return {"daily": g.get("daily") or [], "attempts": g.get("attempts") or [], "since": g.get("since"), "mastery": mastery}
+        # テスト科目 (理科→化学・生物 など) と教材ごとに分けて返す
+        def fix(rows):
+            out = []
+            for r in rows or []:
+                i = info.get(r.get("deck_id"))
+                out.append(dict(r, subject=i["subject"] if i else ((r.get("subject") or "").strip() or "その他"),
+                                deck_id=r.get("deck_id") if i else None, deck_title=i["title"] if i else "（消した教材）"))
+            return out
+        return {"daily": fix(g.get("daily")), "attempts": fix(g.get("attempts")), "since": g.get("since"), "mastery": mastery}
 
     if action == "cards_by_ids":
         return {"cards": s.get_cards([int(i) for i in (body.get("card_ids") or [])][:200])}
