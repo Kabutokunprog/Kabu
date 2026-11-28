@@ -32,7 +32,7 @@ MODEL_LABEL = {"claude-opus-5-5": "Opus 5.5", "claude-sonnet-5-5": "Sonnet 5.5"}
 def pick_model(key):
     return MODELS.get(key or "", MODEL)
 MOCK = os.environ.get("FLASH_MOCK") == "1"
-APP_VERSION = "1.30"  # 画面(index.html)の APP_VERSION と同じにする
+APP_VERSION = "1.31"  # 画面(index.html)の APP_VERSION と同じにする
 COMMIT = (os.environ.get("VERCEL_GIT_COMMIT_SHA") or "")[:7]  # ローカル確認用 (DB も AI も使わない)
 
 # 復習フラッシュ: 連続正解の回数 -> 次に出すまでの日数。3回連続正解で卒業。
@@ -1314,12 +1314,15 @@ def exam_summary(s, profile_id, exam):
         answered[a.get("deck_id")] = answered.get(a.get("deck_id"), 0) + 1
     groups = {}
     for dd, cs in scoped:
-        g = groups.setdefault(subj_of(dd), {"subject": subj_of(dd), "deck_ids": [], "cards": []})
+        # 教材ごとの日付 (例: 理科の中の 化学・生物) があれば、その教材だけで1つの枠にする
+        dk = f"deck:{dd['id']}"
+        key, label = (dk, (dd.get("title") or "").strip() or subj_of(dd)) if dk in dates else (subj_of(dd), subj_of(dd))
+        g = groups.setdefault(key, {"key": key, "subject": label, "deck_ids": [], "cards": []})
         g["deck_ids"].append(dd["id"])
         g["cards"].extend(cs)
     subjects = []
     for g in groups.values():
-        date = dates.get(g["subject"]) or str(exam["exam_date"])[:10]
+        date = dates.get(g["key"]) or str(exam["exam_date"])[:10]
         days_left = _days_to(date)
         total = len(g["cards"])
         mastered = sum(1 for c in g["cards"] if is_mastered(c))
@@ -1365,10 +1368,11 @@ def plan_quota(s, profile_id, exam, limit):
     return out[:max(limit, len(out))]
 
 
-def exam_chip(ex):
+def exam_chip(ex, decks=()):
     """トップに出す「次のテスト」。科目ごとの日付があれば、次の科目の日まで。"""
     t = today_jst().isoformat()
-    dates = exam_dates(ex)
+    titles = {f"deck:{d['id']}": d.get("title") or "" for d in decks}
+    dates = {titles.get(k, k): v for k, v in exam_dates(ex).items()}
     if dates:
         up = sorted((d, k) for k, d in dates.items() if d >= t)
         first = str(ex["exam_date"])[:10]
@@ -1543,7 +1547,7 @@ def handle(action, body, passcode):
             out.append(dict(p, deck_count=len(decks), card_count=sum(d["card_count"] for d in decks),
                             mastered=sum(d["stats"]["mastered"] for d in decks),
                             in_review=sum(d["stats"]["in_review"] for d in decks), due=len(due),
-                            next_exam=exam_chip(ex) if ex else None))
+                            next_exam=exam_chip(ex, decks) if ex else None))
         return {"profiles": out}
 
     if action == "get_deck":
