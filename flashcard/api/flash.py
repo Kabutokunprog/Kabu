@@ -1119,6 +1119,23 @@ def is_due(card):
 DECK_EDIT_FIELDS = ("title", "grade", "term", "subject", "memo", "card_kind", "profile_id")
 
 
+def log_answers(s, body, answers, old, mode):
+    """1問ずつの記録 (科目ごとの成長グラフ用): 何回目に解いたか・4択か自分で答えたか"""
+    ans_mode = "choice" if body.get("answer_mode") == "choice" else "flip"
+    deck_of = {int(c["id"]): c.get("deck_id") for c in s.get_cards(list(answers))}
+    subj = {}
+    for did in set(v for v in deck_of.values() if v):
+        subj[did] = (s.get_deck_row(did) or {}).get("subject") or "その他"
+    now_s = iso(now_utc())
+    s.add_answers([{
+        "profile_id": int(body["profile_id"]), "card_id": cid, "deck_id": deck_of.get(cid),
+        "subject": subj.get(deck_of.get(cid), "その他"), "correct": ok, "ans_mode": ans_mode,
+        "study_mode": "review" if mode == "review" else "normal",
+        "attempt_no": int((old.get(cid) or {}).get("correct_count") or 0) + int((old.get(cid) or {}).get("wrong_count") or 0) + 1,
+        "answered_at": now_s,
+    } for cid, ok in answers.items() if cid in deck_of])
+
+
 def handle(action, body, passcode):
     s = store_for(passcode)
 
@@ -1207,19 +1224,10 @@ def handle(action, body, passcode):
                                                    "in_review", "review_streak", "next_due_at")})
             s.save_progress_many(rows)
             # 1問ずつの記録 (科目ごとの成長グラフ用): 何回目に解いたか・4択か自分で答えたか
-            ans_mode = "choice" if body.get("answer_mode") == "choice" else "flip"
-            deck_of = {int(c["id"]): c.get("deck_id") for c in s.get_cards(list(answers))}
-            subj = {}
-            for did in set(v for v in deck_of.values() if v):
-                subj[did] = (s.get_deck_row(did) or {}).get("subject") or "その他"
-            now_s = iso(now_utc())
-            s.add_answers([{
-                "profile_id": int(body["profile_id"]), "card_id": cid, "deck_id": deck_of.get(cid),
-                "subject": subj.get(deck_of.get(cid), "その他"), "correct": ok, "ans_mode": ans_mode,
-                "study_mode": "review" if mode == "review" else "normal",
-                "attempt_no": int((old.get(cid) or {}).get("correct_count") or 0) + int((old.get(cid) or {}).get("wrong_count") or 0) + 1,
-                "answered_at": now_s,
-            } for cid, ok in answers.items() if cid in deck_of])
+            try:
+                log_answers(s, body, answers, old, mode)
+            except Exception:  # グラフ用の記録に失敗しても、学習の記録は必ず残す
+                pass
             wrong = [w for w in (body.get("wrong_items") or [])][:100]
             s.add_session({
                 "profile_id": int(body["profile_id"]),

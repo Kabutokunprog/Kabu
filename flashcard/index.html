@@ -1018,11 +1018,13 @@ function histSeg(){return `<h2>📈 ${esc(S.profile.name)}の記録</h2><div cla
 
 // ------------------------------------------------------------ 科目ごとの成長
 // 4択は勘でも25%当たるので、その分を差し引いて「自分で答える」と同じものさしにそろえる
+// 解いた数が少なすぎる点(3問未満)はぶれるので描かない
+const MIN_N=3;
 function realPct(f,c){ // f,c = {n,ok}
   const adj=c.n?Math.max(0,(c.ok-c.n*0.25)/0.75):0, n=f.n+c.n;
-  return n?Math.round((f.ok+adj)/n*100):null;
+  return n>=MIN_N?Math.round((f.ok+adj)/n*100):null;
 }
-const pctOf=x=>x&&x.n?Math.round(x.ok/x.n*100):null;
+const pctOf=x=>x&&x.n>=MIN_N?Math.round(x.ok/x.n*100):null;
 function lineChart(labels,series,opt={}){
   const W=320,H=150,L=30,R=10,T=12,B=24, w=W-L-R, h=H-T-B, n=labels.length;
   const X=i=>L+(n<=1?w/2:i*w/(n-1)), Y=v=>T+h-(v/100)*h;
